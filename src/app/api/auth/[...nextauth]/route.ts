@@ -1,1 +1,3 @@
-export { GET, POST } from "@/lib/auth-handlers";
+import { handlers } from "@/lib/auth";
+
+export const { GET, POST } = handlers;

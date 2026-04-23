@@ -1,18 +1,15 @@
 "use client";
 
-import {
-  Cell,
-  Legend,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-} from "recharts";
+import { Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { formatCurrency } from "@/lib/utils";
-import type { CategoryBreakdown } from "@/lib/analytics";
+
+export type CategoryBreakdown = {
+  category: string;
+  total: number;
+};
 
 const COLORS = [
-  "hsl(217 89% 53%)",
+  "hsl(258 70% 65%)",
   "hsl(142 70% 45%)",
   "hsl(35 92% 55%)",
   "hsl(280 70% 60%)",
@@ -26,10 +23,11 @@ export function CategoryPie({ data }: { data: CategoryBreakdown[] }) {
   if (!data.length) {
     return (
       <div className="grid h-full place-items-center text-sm text-muted-foreground">
-        Nenhuma despesa registrada
+        Nenhuma categoria registrada
       </div>
     );
   }
+
   return (
     <ResponsiveContainer width="100%" height="100%">
       <PieChart>
@@ -49,11 +47,7 @@ export function CategoryPie({ data }: { data: CategoryBreakdown[] }) {
           formatter={(v: number) => formatCurrency(v)}
           contentStyle={{ borderRadius: 12 }}
         />
-        <Legend
-          verticalAlign="bottom"
-          iconType="circle"
-          wrapperStyle={{ fontSize: 12 }}
-        />
+        <Legend verticalAlign="bottom" iconType="circle" wrapperStyle={{ fontSize: 12 }} />
       </PieChart>
     </ResponsiveContainer>
   );

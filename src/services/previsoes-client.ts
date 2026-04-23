@@ -1,4 +1,4 @@
-import type { Purchase, PurchaseInput } from "@/types/purchase";
+import type { Previsao, PrevisaoInput } from "@/types/previsao";
 
 async function handle<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -8,26 +8,24 @@ async function handle<T>(res: Response): Promise<T> {
   return (await res.json()) as T;
 }
 
-export const purchasesClient = {
+export const previsoesClient = {
   list: () =>
-    fetch("/api/purchases", { cache: "no-store" }).then(handle<Purchase[]>),
+    fetch("/api/previsoes", { cache: "no-store" }).then(handle<Previsao[]>),
 
-  create: (input: PurchaseInput) =>
-    fetch("/api/purchases", {
+  create: (input: PrevisaoInput) =>
+    fetch("/api/previsoes", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
-    }).then(handle<Purchase>),
+    }).then(handle<Previsao>),
 
-  update: (id: string, input: PurchaseInput) =>
-    fetch(`/api/purchases/${id}`, {
+  update: (id: string, input: PrevisaoInput) =>
+    fetch(`/api/previsoes/${id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
-    }).then(handle<Purchase>),
+    }).then(handle<Previsao>),
 
   remove: (id: string) =>
-    fetch(`/api/purchases/${id}`, { method: "DELETE" }).then(
-      handle<{ ok: true }>,
-    ),
+    fetch(`/api/previsoes/${id}`, { method: "DELETE" }).then(handle<{ ok: true }>),
 };

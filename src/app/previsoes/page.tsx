@@ -2,74 +2,47 @@
 
 import * as React from "react";
 import { useSession } from "next-auth/react";
-import { CalendarClock, TrendingDown, TrendingUp, Wallet } from "lucide-react";
+import { CalendarClock, Pencil, Trash2, Info } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
-import { SignInRequired } from "@/components/shared/sign-in-required";
-import { EmptyState } from "@/components/shared/empty-state";
 import { Fab } from "@/components/shared/fab";
+import { EmptyState } from "@/components/shared/empty-state";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
-import { ChartCard } from "@/components/dashboard/chart-card";
-import { CashFlowChart } from "@/components/forecast/cash-flow-chart";
-import { CashFlowTable } from "@/components/forecast/cash-flow-table";
-import { TransactionTable } from "@/components/transactions/transaction-table";
-import { TransactionCard } from "@/components/transactions/transaction-card";
-import { TransactionForm } from "@/components/transactions/transaction-form";
-import { useMediaQuery } from "@/hooks/use-media-query";
-import {
-  useCreateTransaction,
-  useDeleteTransaction,
-  useTransactions,
-  useUpdateTransaction,
-} from "@/hooks/use-transactions";
-import {
-  cashFlowProjection,
-  splitByDate,
-  uniqueCategories,
-} from "@/lib/analytics";
-import { cn, formatCurrency } from "@/lib/utils";
+import { SignInRequired } from "@/components/shared/sign-in-required";
+import { PrevisaoForm } from "@/components/previsoes/previsao-form";
+import { usePrevisoes, useCreatePrevisao, useUpdatePrevisao, useDeletePrevisao } from "@/hooks/use-previsoes";
+import { useProfile } from "@/hooks/use-profile";
 import { toast } from "@/hooks/use-toast";
-import type {
-  Transaction,
-  TransactionInput,
-} from "@/types/transaction";
+import { formatCurrency, formatDate, cn } from "@/lib/utils";
+import { projecaoComPrevisoes } from "@/lib/compras-analytics";
+import type { Previsao, PrevisaoInput } from "@/types/previsao";
 
-export default function ForecastPage() {
+export default function PrevisoesPage() {
   const { status } = useSession();
-  const { data, isLoading } = useTransactions();
-  const create = useCreateTransaction();
-  const update = useUpdateTransaction();
-  const remove = useDeleteTransaction();
+  const { data, isLoading } = usePrevisoes();
+  const { data: profile } = useProfile();
 
-  const isDesktop = useMediaQuery("(min-width: 768px)");
+  const create = useCreatePrevisao();
+  const update = useUpdatePrevisao();
+  const remove = useDeletePrevisao();
 
   const [open, setOpen] = React.useState(false);
-  const [editing, setEditing] = React.useState<Transaction | null>(null);
+  const [editing, setEditing] = React.useState<Previsao | null>(null);
 
-  const transactions = data ?? [];
-  const planned = React.useMemo(
-    () =>
-      splitByDate(transactions).planned.sort((a, b) =>
-        a.date.localeCompare(b.date),
-      ),
-    [transactions],
-  );
-  const categories = React.useMemo(
-    () => uniqueCategories(transactions),
-    [transactions],
+  const previsoes = data ?? [];
+  const saldoAtual = profile?.saldoRestante ?? 0;
+  const salario = profile?.salario ?? 0;
+
+  const projecao = React.useMemo(
+    () => projecaoComPrevisoes(previsoes, saldoAtual, salario, 6),
+    [previsoes, saldoAtual, salario],
   );
 
-  function openCreate() {
-    setEditing(null);
-    setOpen(true);
-  }
-  function openEdit(t: Transaction) {
-    setEditing(t);
-    setOpen(true);
-  }
+  function openCreate() { setEditing(null); setOpen(true); }
+  function openEdit(p: Previsao) { setEditing(p); setOpen(true); }
 
-  async function handleSubmit(input: TransactionInput) {
+  async function handleSubmit(input: PrevisaoInput) {
     try {
       if (editing) {
         await update.mutateAsync({ id: editing.id, input });
@@ -82,23 +55,21 @@ export default function ForecastPage() {
     } catch (err) {
       toast({
         title: "Algo deu errado",
-        description:
-          err instanceof Error ? err.message : "Tente novamente.",
+        description: err instanceof Error ? err.message : "Tente novamente.",
         variant: "destructive",
       });
     }
   }
 
-  async function handleDelete(t: Transaction) {
-    if (!confirm(`Excluir "${t.description}"?`)) return;
+  async function handleDelete(p: Previsao) {
+    if (!confirm(`Excluir "${p.descricao}"?`)) return;
     try {
-      await remove.mutateAsync(t.id);
+      await remove.mutateAsync(p.id);
       toast({ title: "Previsão removida", variant: "success" });
     } catch (err) {
       toast({
         title: "Falha ao excluir",
-        description:
-          err instanceof Error ? err.message : "Tente novamente.",
+        description: err instanceof Error ? err.message : "Tente novamente.",
         variant: "destructive",
       });
     }
@@ -111,57 +82,112 @@ export default function ForecastPage() {
     <>
       <PageHeader
         title="Previsões"
-        description="Lance compromissos futuros e veja a estimativa do seu fluxo de caixa até o fim do ano."
+        description="Simule compras futuras e veja o impacto no seu saldo."
         action={
           <Button className="hidden md:inline-flex" onClick={openCreate}>
-            Adicionar previsão
+            Nova previsão
           </Button>
         }
       />
 
-      {isLoading ? (
-        <div className="space-y-4">
-          <Skeleton className="h-32" />
-          <Skeleton className="h-80" />
-        </div>
-      ) : (
-        <div className="space-y-4 md:space-y-6">
+      {/* Aviso de simulação */}
+      <div className="mb-4 flex items-start gap-2 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
+        <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+        <span>
+          As previsões são <strong>apenas simulações</strong>. Elas não afetam o saldo real, compras ou qualquer outro cálculo do sistema — servem só para projetar cenários futuros.
+        </span>
+      </div>
 
-          <section className="space-y-3">
-            <div className="flex items-baseline justify-between">
-              <h2 className="text-lg font-semibold tracking-tight">
-                Lançamentos futuros
+      {isLoading ? (
+        <div className="space-y-3">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-20" />)}</div>
+      ) : (
+        <div className="space-y-6">
+          {/* Projeção de simulação */}
+          <Card>
+            <CardContent className="p-4">
+              <p className="mb-1 text-sm font-semibold">Simulação: próximos 6 meses</p>
+              <p className="mb-3 text-xs text-muted-foreground">
+                Base: saldo restante ({formatCurrency(saldoAtual)}) + salário ({formatCurrency(salario)}/mês) − previsões do mês
+              </p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-border text-muted-foreground">
+                      <th className="py-1.5 text-left">Mês</th>
+                      <th className="py-1.5 text-right">Receita</th>
+                      <th className="py-1.5 text-right">Previsto</th>
+                      <th className="py-1.5 text-right font-semibold">Saldo simulado</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {projecao.map((p) => (
+                      <tr key={p.month} className="border-b border-border/40">
+                        <td className="py-1.5 font-medium">{p.month}</td>
+                        <td className="py-1.5 text-right text-success">{formatCurrency(p.income)}</td>
+                        <td className="py-1.5 text-right text-destructive">{formatCurrency(p.expense)}</td>
+                        <td className={cn(
+                          "py-1.5 text-right font-semibold",
+                          p.balance >= 0 ? "text-success" : "text-destructive",
+                        )}>
+                          {formatCurrency(p.balance)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Lista de previsões */}
+          <section>
+            <div className="mb-3 flex items-baseline justify-between">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                Lançamentos simulados
               </h2>
               <span className="text-xs text-muted-foreground">
-                {planned.length}{" "}
-                {planned.length === 1 ? "previsão" : "previsões"}
+                {previsoes.length} {previsoes.length === 1 ? "previsão" : "previsões"}
               </span>
             </div>
 
-            {planned.length === 0 ? (
+            {previsoes.length === 0 ? (
               <EmptyState
                 icon={CalendarClock}
                 title="Nenhuma previsão cadastrada"
-                description="Lance compromissos futuros (contas, salário, parcelas) com data posterior a hoje para vê-los aqui e refinar o fluxo de caixa."
-                action={
-                  <Button onClick={openCreate}>Adicionar previsão</Button>
-                }
-              />
-            ) : isDesktop ? (
-              <TransactionTable
-                transactions={planned}
-                onEdit={openEdit}
-                onDelete={handleDelete}
+                description="Adicione uma previsão para simular o impacto no seu saldo."
+                action={<Button onClick={openCreate}>Nova previsão</Button>}
               />
             ) : (
-              <div className="space-y-3">
-                {planned.map((t) => (
-                  <TransactionCard
-                    key={t.id}
-                    transaction={t}
-                    onEdit={openEdit}
-                    onDelete={handleDelete}
-                  />
+              <div className="space-y-2">
+                {previsoes.map((p) => (
+                  <Card key={p.id}>
+                    <CardContent className="flex items-start justify-between gap-4 p-4">
+                      <div className="min-w-0 flex-1 space-y-0.5">
+                        <p className="truncate font-medium">{p.descricao}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {formatDate(p.dataPrevista)}
+                          {p.categoria !== "Previsão" ? ` · ${p.categoria}` : ""}
+                          {p.parcelada && p.totalParcelas
+                            ? ` · ${p.totalParcelas}x ${formatCurrency(p.valorParcela)}`
+                            : ""}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1">
+                        <span className="mr-2 font-semibold">{formatCurrency(p.valor)}</span>
+                        <Button size="icon" variant="ghost" onClick={() => openEdit(p)}>
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => handleDelete(p)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
                 ))}
               </div>
             )}
@@ -169,61 +195,15 @@ export default function ForecastPage() {
         </div>
       )}
 
-      <Fab onClick={openCreate} label="Adicionar previsão" className="md:hidden" />
+      <Fab onClick={openCreate} label="Nova previsão" className="md:hidden" />
 
-      <TransactionForm
+      <PrevisaoForm
         open={open}
         onOpenChange={setOpen}
         initial={editing}
-        categories={categories}
         onSubmit={handleSubmit}
         isSubmitting={create.isPending || update.isPending}
       />
     </>
-  );
-}
-
-function SummaryTile({
-  icon: Icon,
-  label,
-  value,
-  tone,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  value: string;
-  tone?: "income" | "expense";
-}) {
-  return (
-    <Card>
-      <CardContent className="flex items-center gap-4 p-5">
-        <span
-          className={cn(
-            "grid h-11 w-11 place-items-center rounded-2xl",
-            tone === "income"
-              ? "bg-success/10 text-success"
-              : tone === "expense"
-                ? "bg-destructive/10 text-destructive"
-                : "bg-accent text-accent-foreground",
-          )}
-        >
-          <Icon className="h-5 w-5" />
-        </span>
-        <div className="min-w-0">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            {label}
-          </p>
-          <p
-            className={cn(
-              "mt-0.5 text-lg font-semibold tracking-tight",
-              tone === "income" && "text-success",
-              tone === "expense" && "text-destructive",
-            )}
-          >
-            {value}
-          </p>
-        </div>
-      </CardContent>
-    </Card>
   );
 }

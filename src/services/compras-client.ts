@@ -1,5 +1,7 @@
 import type { Compra, CompraInput } from "@/types/compra";
 
+export type PagarResult = { quitada: boolean; compra?: Compra };
+
 async function handle<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -27,7 +29,8 @@ export const comprasClient = {
     }).then(handle<Compra>),
 
   remove: (id: string) =>
-    fetch(`/api/compras/${id}`, { method: "DELETE" }).then(
-      handle<{ ok: true }>,
-    ),
+    fetch(`/api/compras/${id}`, { method: "DELETE" }).then(handle<{ ok: true }>),
+
+  pagar: (id: string) =>
+    fetch(`/api/compras/${id}`, { method: "PATCH" }).then(handle<PagarResult>),
 };

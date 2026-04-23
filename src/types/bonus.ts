@@ -4,6 +4,7 @@ export const BonusSchema = z.object({
   id: z.string(),
   valor: z.coerce.number().positive("O valor deve ser maior que zero"),
   descricao: z.string().min(1, "Informe a origem do bônus"),
+  recorrente: z.boolean().default(false),
 });
 
 export type Bonus = z.infer<typeof BonusSchema>;

@@ -33,6 +33,7 @@ const DEFAULTS: CobrancaInput = {
   quantidadeParcelas: null,
   valorTotal: 0,
   dataVencimento: todayISO(),
+  categoria: "Cobrança",
 };
 
 export function CobrancaForm({ open, onOpenChange, initial, onSubmit, isSubmitting }: Props) {
@@ -57,6 +58,7 @@ export function CobrancaForm({ open, onOpenChange, initial, onSubmit, isSubmitti
               quantidadeParcelas: initial.quantidadeParcelas,
               valorTotal: initial.valorTotal,
               dataVencimento: initial.dataVencimento,
+              categoria: initial.categoria ?? "Cobrança",
             }
           : DEFAULTS,
       );

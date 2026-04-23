@@ -1,401 +1,16 @@
-import {
-  type Transaction,
-  type TransactionInput,
-} from "@/types/transaction";
-import {
-  type Purchase,
-  type PurchaseInput,
-  type Income,
-  type IncomeInput,
-} from "@/types/purchase";
 import { type Compra, type CompraInput } from "@/types/compra";
 import { type Profile, type ProfileInput } from "@/types/profile";
 import { type Cobranca, type CobrancaInput } from "@/types/cobranca";
 import { type Bonus, type BonusInput } from "@/types/bonus";
+import { type Previsao, type PrevisaoInput } from "@/types/previsao";
 import { createSupabaseServiceClient } from "@/lib/supabase";
 
-type TransactionRow = {
-  id: string;
-  user_id: string;
-  date: string;
-  description: string;
-  amount: number;
-  type: "income" | "expense";
-  category: string;
-  recurring: boolean;
-};
-
-type PurchaseRow = {
-  id: string;
-  user_id: string;
-  produto: string;
-  pagar_onde: string;
-  parcelado: boolean;
-  parcela_total: number | null;
-  data_inicio: string;
-  valor_parcela: number;
-  valor_total: number;
-};
-
-type IncomeRow = {
-  id: string;
-  user_id: string;
-  fonte: string;
-  valor: number;
-};
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function newId(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
     : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function toTransaction(row: TransactionRow): Transaction {
-  return {
-    id: row.id,
-    date: row.date,
-    description: row.description,
-    amount: row.amount,
-    type: row.type,
-    category: row.category,
-    recurring: row.recurring,
-  };
-}
-
-function toPurchase(row: PurchaseRow): Purchase {
-  return {
-    id: row.id,
-    produto: row.produto,
-    pagarOnde: row.pagar_onde,
-    parcelado: row.parcelado,
-    parcelaTotal: row.parcela_total,
-    dataInicio: row.data_inicio,
-    valorParcela: row.valor_parcela,
-    valorTotal: row.valor_total,
-  };
-}
-
-function toIncome(row: IncomeRow): Income {
-  return {
-    id: row.id,
-    fonte: row.fonte,
-    valor: row.valor,
-  };
-}
-
-export async function findOrCreateSpreadsheet(_userId: string): Promise<string> {
-  return "supabase";
-}
-
-export async function listTransactions(
-  accessToken: string,
-  userId: string,
-): Promise<Transaction[]> {
-  const supabase = createSupabaseServiceClient();
-  const { data, error } = await supabase
-    .from("transactions")
-    .select("id,user_id,date,description,amount,type,category,recurring")
-    .eq("user_id", userId)
-    .order("date", { ascending: false })
-    .order("id", { ascending: false });
-
-  if (error) throw new Error(error.message);
-  return (data ?? []).map((row) => toTransaction(row as TransactionRow));
-}
-
-export async function appendTransaction(
-  accessToken: string,
-  userId: string,
-  input: TransactionInput,
-): Promise<Transaction> {
-  const supabase = createSupabaseServiceClient();
-  const id = newId();
-  const row = {
-    id,
-    user_id: userId,
-    date: input.date,
-    description: input.description,
-    amount: input.amount,
-    type: input.type,
-    category: input.category,
-    recurring: input.recurring,
-  };
-
-  const { data, error } = await supabase
-    .from("transactions")
-    .insert(row)
-    .select("id,user_id,date,description,amount,type,category,recurring")
-    .single();
-
-  if (error) throw new Error(error.message);
-  return toTransaction(data as TransactionRow);
-}
-
-export async function listExistingIds(
-  accessToken: string,
-  userId: string,
-): Promise<Set<string>> {
-  const supabase = createSupabaseServiceClient();
-  const { data, error } = await supabase
-    .from("transactions")
-    .select("id")
-    .eq("user_id", userId);
-
-  if (error) throw new Error(error.message);
-  return new Set((data ?? []).map((row) => String((row as { id: string }).id)));
-}
-
-export type BulkAppendResult = {
-  inserted: Transaction[];
-  skipped: number;
-};
-
-export async function appendTransactionsBulk(
-  accessToken: string,
-  userId: string,
-  inputs: Array<TransactionInput & { id?: string }>,
-): Promise<BulkAppendResult> {
-  const existing = await listExistingIds(accessToken, userId);
-
-  const insertedRows: TransactionRow[] = [];
-  let skipped = 0;
-
-  for (const input of inputs) {
-    const id = input.id?.trim() || newId();
-    if (existing.has(id)) {
-      skipped++;
-      continue;
-    }
-
-    existing.add(id);
-    insertedRows.push({
-      id,
-      user_id: userId,
-      date: input.date,
-      description: input.description,
-      amount: input.amount,
-      type: input.type,
-      category: input.category,
-      recurring: input.recurring,
-    });
-  }
-
-  if (insertedRows.length > 0) {
-    const supabase = createSupabaseServiceClient();
-    const { error } = await supabase.from("transactions").insert(insertedRows);
-    if (error) throw new Error(error.message);
-  }
-
-  return { inserted: insertedRows.map(toTransaction), skipped };
-}
-
-export async function updateTransaction(
-  accessToken: string,
-  userId: string,
-  id: string,
-  input: TransactionInput,
-): Promise<Transaction> {
-  const supabase = createSupabaseServiceClient();
-  const { data, error } = await supabase
-    .from("transactions")
-    .update({
-      date: input.date,
-      description: input.description,
-      amount: input.amount,
-      type: input.type,
-      category: input.category,
-      recurring: input.recurring,
-    })
-    .eq("id", id)
-    .eq("user_id", userId)
-    .select("id,user_id,date,description,amount,type,category,recurring")
-    .single();
-
-  if (error) throw new Error(error.message);
-  return toTransaction(data as TransactionRow);
-}
-
-export async function deleteTransaction(
-  accessToken: string,
-  userId: string,
-  id: string,
-): Promise<void> {
-  const supabase = createSupabaseServiceClient();
-  const { error } = await supabase
-    .from("transactions")
-    .delete()
-    .eq("id", id)
-    .eq("user_id", userId);
-
-  if (error) throw new Error(error.message);
-}
-
-const PURCHASE_COLS =
-  "id,user_id,produto,pagar_onde,parcelado,parcela_total,data_inicio,valor_parcela,valor_total";
-
-export async function listPurchases(
-  accessToken: string,
-  userId: string,
-): Promise<Purchase[]> {
-  const supabase = createSupabaseServiceClient();
-  const { data, error } = await supabase
-    .from("purchases")
-    .select(PURCHASE_COLS)
-    .eq("user_id", userId)
-    .order("data_inicio", { ascending: false });
-
-  if (error) throw new Error(error.message);
-  return (data ?? []).map((row) => toPurchase(row as PurchaseRow));
-}
-
-export async function appendPurchase(
-  accessToken: string,
-  userId: string,
-  input: PurchaseInput,
-): Promise<Purchase> {
-  const supabase = createSupabaseServiceClient();
-  const id = newId();
-
-  const { data, error } = await supabase
-    .from("purchases")
-    .insert({
-      id,
-      user_id: userId,
-      produto: input.produto,
-      pagar_onde: input.pagarOnde,
-      parcelado: input.parcelado,
-      parcela_total: input.parcelaTotal,
-      data_inicio: input.dataInicio,
-      valor_parcela: input.valorParcela,
-      valor_total: input.valorTotal,
-    })
-    .select(PURCHASE_COLS)
-    .single();
-
-  if (error) throw new Error(error.message);
-  return toPurchase(data as PurchaseRow);
-}
-
-export async function updatePurchase(
-  accessToken: string,
-  userId: string,
-  id: string,
-  input: PurchaseInput,
-): Promise<Purchase> {
-  const supabase = createSupabaseServiceClient();
-  const { data, error } = await supabase
-    .from("purchases")
-    .update({
-      produto: input.produto,
-      pagar_onde: input.pagarOnde,
-      parcelado: input.parcelado,
-      parcela_total: input.parcelaTotal,
-      data_inicio: input.dataInicio,
-      valor_parcela: input.valorParcela,
-      valor_total: input.valorTotal,
-    })
-    .eq("id", id)
-    .eq("user_id", userId)
-    .select(PURCHASE_COLS)
-    .single();
-
-  if (error) throw new Error(error.message);
-  return toPurchase(data as PurchaseRow);
-}
-
-export async function deletePurchase(
-  accessToken: string,
-  userId: string,
-  id: string,
-): Promise<void> {
-  const supabase = createSupabaseServiceClient();
-  const { error } = await supabase
-    .from("purchases")
-    .delete()
-    .eq("id", id)
-    .eq("user_id", userId);
-
-  if (error) throw new Error(error.message);
-}
-
-export async function listIncome(
-  accessToken: string,
-  userId: string,
-): Promise<Income[]> {
-  const supabase = createSupabaseServiceClient();
-  const { data, error } = await supabase
-    .from("income")
-    .select("id,user_id,fonte,valor")
-    .eq("user_id", userId)
-    .order("id", { ascending: false });
-
-  if (error) throw new Error(error.message);
-  return (data ?? []).map((row) => toIncome(row as IncomeRow));
-}
-
-export async function appendIncome(
-  accessToken: string,
-  userId: string,
-  input: IncomeInput,
-): Promise<Income> {
-  const supabase = createSupabaseServiceClient();
-  const id = newId();
-  const { data, error } = await supabase
-    .from("income")
-    .insert({ id, user_id: userId, fonte: input.fonte, valor: input.valor })
-    .select("id,user_id,fonte,valor")
-    .single();
-
-  if (error) throw new Error(error.message);
-  return toIncome(data as IncomeRow);
-}
-
-export async function updateIncome(
-  accessToken: string,
-  userId: string,
-  id: string,
-  input: IncomeInput,
-): Promise<Income> {
-  const supabase = createSupabaseServiceClient();
-  const { data, error } = await supabase
-    .from("income")
-    .update({ fonte: input.fonte, valor: input.valor })
-    .eq("id", id)
-    .eq("user_id", userId)
-    .select("id,user_id,fonte,valor")
-    .single();
-
-  if (error) throw new Error(error.message);
-  return toIncome(data as IncomeRow);
-}
-
-export async function deleteIncome(
-  accessToken: string,
-  userId: string,
-  id: string,
-): Promise<void> {
-  const supabase = createSupabaseServiceClient();
-  const { error } = await supabase
-    .from("income")
-    .delete()
-    .eq("id", id)
-    .eq("user_id", userId);
-
-  if (error) throw new Error(error.message);
-}
-
-// ─── deleteAllTransactions ────────────────────────────────────────────────────
-
-export async function deleteAllTransactions(
-  accessToken: string,
-  userId: string,
-): Promise<void> {
-  const supabase = createSupabaseServiceClient();
-  const { error } = await supabase
-    .from("transactions")
-    .delete()
-    .eq("user_id", userId);
-  if (error) throw new Error(error.message);
 }
 
 // ─── Compras ─────────────────────────────────────────────────────────────────
@@ -411,6 +26,9 @@ type CompraRow = {
   valor_parcela: number;
   valor_total: number;
   parcelada: boolean;
+  categoria: string;
+  quitada: boolean;
+  created_at: string;
 };
 
 function toCompra(row: CompraRow): Compra {
@@ -424,37 +42,44 @@ function toCompra(row: CompraRow): Compra {
     valorParcela: row.valor_parcela,
     valorTotal: row.valor_total,
     parcelada: row.parcelada,
+    categoria: row.categoria ?? "Outros",
+    quitada: row.quitada ?? false,
+    createdAt: row.created_at,
   };
 }
 
 const COMPRA_COLS =
-  "id,user_id,nome,cartao_ou_pessoa,total_parcelas,parcelas_restantes,data_inicio,valor_parcela,valor_total,parcelada";
+  "id,user_id,nome,cartao_ou_pessoa,total_parcelas,parcelas_restantes,data_inicio,valor_parcela,valor_total,parcelada,categoria,quitada,created_at";
 
-export async function listCompras(
-  accessToken: string,
-  userId: string,
-): Promise<Compra[]> {
-  const supabase = createSupabaseServiceClient();
-  const { data, error } = await supabase
+export async function listCompras(_: string, userId: string): Promise<Compra[]> {
+  const sb = createSupabaseServiceClient();
+  const { data, error } = await sb
     .from("compras")
     .select(COMPRA_COLS)
     .eq("user_id", userId)
-    .order("data_inicio", { ascending: false });
+    .eq("quitada", false)
+    .order("created_at", { ascending: false });
   if (error) throw new Error(error.message);
-  return (data ?? []).map((row) => toCompra(row as CompraRow));
+  return (data ?? []).map((r) => toCompra(r as CompraRow));
 }
 
-export async function appendCompra(
-  accessToken: string,
-  userId: string,
-  input: CompraInput,
-): Promise<Compra> {
-  const supabase = createSupabaseServiceClient();
-  const id = newId();
-  const { data, error } = await supabase
+export async function listAllCompras(_: string, userId: string): Promise<Compra[]> {
+  const sb = createSupabaseServiceClient();
+  const { data, error } = await sb
+    .from("compras")
+    .select(COMPRA_COLS)
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((r) => toCompra(r as CompraRow));
+}
+
+export async function appendCompra(_: string, userId: string, input: CompraInput): Promise<Compra> {
+  const sb = createSupabaseServiceClient();
+  const { data, error } = await sb
     .from("compras")
     .insert({
-      id,
+      id: newId(),
       user_id: userId,
       nome: input.nome,
       cartao_ou_pessoa: input.cartaoOuPessoa,
@@ -464,6 +89,8 @@ export async function appendCompra(
       valor_parcela: input.valorParcela,
       valor_total: input.valorTotal,
       parcelada: input.parcelada,
+      categoria: input.categoria ?? "Outros",
+      quitada: false,
     })
     .select(COMPRA_COLS)
     .single();
@@ -471,14 +98,9 @@ export async function appendCompra(
   return toCompra(data as CompraRow);
 }
 
-export async function updateCompra(
-  accessToken: string,
-  userId: string,
-  id: string,
-  input: CompraInput,
-): Promise<Compra> {
-  const supabase = createSupabaseServiceClient();
-  const { data, error } = await supabase
+export async function updateCompra(_: string, userId: string, id: string, input: CompraInput): Promise<Compra> {
+  const sb = createSupabaseServiceClient();
+  const { data, error } = await sb
     .from("compras")
     .update({
       nome: input.nome,
@@ -489,6 +111,7 @@ export async function updateCompra(
       valor_parcela: input.valorParcela,
       valor_total: input.valorTotal,
       parcelada: input.parcelada,
+      categoria: input.categoria ?? "Outros",
     })
     .eq("id", id)
     .eq("user_id", userId)
@@ -498,18 +121,59 @@ export async function updateCompra(
   return toCompra(data as CompraRow);
 }
 
-export async function deleteCompra(
-  accessToken: string,
-  userId: string,
-  id: string,
-): Promise<void> {
-  const supabase = createSupabaseServiceClient();
-  const { error } = await supabase
-    .from("compras")
-    .delete()
-    .eq("id", id)
-    .eq("user_id", userId);
+export async function deleteCompra(_: string, userId: string, id: string): Promise<void> {
+  const sb = createSupabaseServiceClient();
+  const { error } = await sb.from("compras").delete().eq("id", id).eq("user_id", userId);
   if (error) throw new Error(error.message);
+}
+
+export type PagarParcelaResult = { quitada: boolean; compra?: Compra };
+
+export async function pagarParcela(_: string, userId: string, id: string): Promise<PagarParcelaResult> {
+  const sb = createSupabaseServiceClient();
+
+  const { data: current, error: fetchErr } = await sb
+    .from("compras")
+    .select(COMPRA_COLS)
+    .eq("id", id)
+    .eq("user_id", userId)
+    .single();
+
+  if (fetchErr || !current) throw new Error("Compra não encontrada");
+  const compra = toCompra(current as CompraRow);
+
+  if (!compra.parcelada) {
+    const { error } = await sb
+      .from("compras")
+      .update({ quitada: true })
+      .eq("id", id)
+      .eq("user_id", userId);
+    if (error) throw new Error(error.message);
+    return { quitada: true };
+  }
+
+  const parcelas = compra.parcelasRestantes ?? compra.totalParcelas ?? 0;
+  const novas = Math.max(0, parcelas - 1);
+
+  if (novas === 0) {
+    const { error } = await sb
+      .from("compras")
+      .update({ quitada: true, parcelas_restantes: 0, valor_total: 0 })
+      .eq("id", id)
+      .eq("user_id", userId);
+    if (error) throw new Error(error.message);
+    return { quitada: true };
+  }
+
+  const { data, error } = await sb
+    .from("compras")
+    .update({ parcelas_restantes: novas, valor_total: novas * compra.valorParcela })
+    .eq("id", id)
+    .eq("user_id", userId)
+    .select(COMPRA_COLS)
+    .single();
+  if (error) throw new Error(error.message);
+  return { quitada: false, compra: toCompra(data as CompraRow) };
 }
 
 // ─── Perfil ───────────────────────────────────────────────────────────────────
@@ -522,19 +186,12 @@ type ProfileRow = {
 };
 
 function toProfile(row: ProfileRow): Profile {
-  return {
-    id: row.id,
-    salario: row.salario,
-    saldoRestante: row.saldo_restante,
-  };
+  return { id: row.id, salario: row.salario, saldoRestante: row.saldo_restante };
 }
 
-export async function getProfile(
-  accessToken: string,
-  userId: string,
-): Promise<Profile | null> {
-  const supabase = createSupabaseServiceClient();
-  const { data, error } = await supabase
+export async function getProfile(_: string, userId: string): Promise<Profile | null> {
+  const sb = createSupabaseServiceClient();
+  const { data, error } = await sb
     .from("perfil")
     .select("id,user_id,salario,saldo_restante")
     .eq("user_id", userId)
@@ -543,13 +200,9 @@ export async function getProfile(
   return data ? toProfile(data as ProfileRow) : null;
 }
 
-export async function upsertProfile(
-  accessToken: string,
-  userId: string,
-  input: ProfileInput,
-): Promise<Profile> {
-  const supabase = createSupabaseServiceClient();
-  const { data, error } = await supabase
+export async function upsertProfile(_: string, userId: string, input: ProfileInput): Promise<Profile> {
+  const sb = createSupabaseServiceClient();
+  const { data, error } = await sb
     .from("perfil")
     .upsert(
       { user_id: userId, salario: input.salario, saldo_restante: input.saldoRestante },
@@ -573,6 +226,8 @@ type CobrancaRow = {
   quantidade_parcelas: number | null;
   valor_total: number;
   data_vencimento: string;
+  categoria: string;
+  created_at: string;
 };
 
 function toCobranca(row: CobrancaRow): Cobranca {
@@ -585,37 +240,31 @@ function toCobranca(row: CobrancaRow): Cobranca {
     quantidadeParcelas: row.quantidade_parcelas,
     valorTotal: row.valor_total,
     dataVencimento: row.data_vencimento,
+    categoria: row.categoria ?? "Cobrança",
+    createdAt: row.created_at,
   };
 }
 
 const COBRANCA_COLS =
-  "id,user_id,nome_pessoa,valor_devido,nome_compra,eh_parcelado,quantidade_parcelas,valor_total,data_vencimento";
+  "id,user_id,nome_pessoa,valor_devido,nome_compra,eh_parcelado,quantidade_parcelas,valor_total,data_vencimento,categoria,created_at";
 
-export async function listCobrancas(
-  accessToken: string,
-  userId: string,
-): Promise<Cobranca[]> {
-  const supabase = createSupabaseServiceClient();
-  const { data, error } = await supabase
+export async function listCobrancas(_: string, userId: string): Promise<Cobranca[]> {
+  const sb = createSupabaseServiceClient();
+  const { data, error } = await sb
     .from("cobrancas")
     .select(COBRANCA_COLS)
     .eq("user_id", userId)
     .order("data_vencimento", { ascending: true });
   if (error) throw new Error(error.message);
-  return (data ?? []).map((row) => toCobranca(row as CobrancaRow));
+  return (data ?? []).map((r) => toCobranca(r as CobrancaRow));
 }
 
-export async function appendCobranca(
-  accessToken: string,
-  userId: string,
-  input: CobrancaInput,
-): Promise<Cobranca> {
-  const supabase = createSupabaseServiceClient();
-  const id = newId();
-  const { data, error } = await supabase
+export async function appendCobranca(_: string, userId: string, input: CobrancaInput): Promise<Cobranca> {
+  const sb = createSupabaseServiceClient();
+  const { data, error } = await sb
     .from("cobrancas")
     .insert({
-      id,
+      id: newId(),
       user_id: userId,
       nome_pessoa: input.nomePessoa,
       valor_devido: input.valorDevido,
@@ -624,6 +273,7 @@ export async function appendCobranca(
       quantidade_parcelas: input.quantidadeParcelas,
       valor_total: input.valorTotal,
       data_vencimento: input.dataVencimento,
+      categoria: input.categoria ?? "Cobrança",
     })
     .select(COBRANCA_COLS)
     .single();
@@ -631,14 +281,9 @@ export async function appendCobranca(
   return toCobranca(data as CobrancaRow);
 }
 
-export async function updateCobranca(
-  accessToken: string,
-  userId: string,
-  id: string,
-  input: CobrancaInput,
-): Promise<Cobranca> {
-  const supabase = createSupabaseServiceClient();
-  const { data, error } = await supabase
+export async function updateCobranca(_: string, userId: string, id: string, input: CobrancaInput): Promise<Cobranca> {
+  const sb = createSupabaseServiceClient();
+  const { data, error } = await sb
     .from("cobrancas")
     .update({
       nome_pessoa: input.nomePessoa,
@@ -648,6 +293,7 @@ export async function updateCobranca(
       quantidade_parcelas: input.quantidadeParcelas,
       valor_total: input.valorTotal,
       data_vencimento: input.dataVencimento,
+      categoria: input.categoria ?? "Cobrança",
     })
     .eq("id", id)
     .eq("user_id", userId)
@@ -657,17 +303,9 @@ export async function updateCobranca(
   return toCobranca(data as CobrancaRow);
 }
 
-export async function deleteCobranca(
-  accessToken: string,
-  userId: string,
-  id: string,
-): Promise<void> {
-  const supabase = createSupabaseServiceClient();
-  const { error } = await supabase
-    .from("cobrancas")
-    .delete()
-    .eq("id", id)
-    .eq("user_id", userId);
+export async function deleteCobranca(_: string, userId: string, id: string): Promise<void> {
+  const sb = createSupabaseServiceClient();
+  const { error } = await sb.from("cobrancas").delete().eq("id", id).eq("user_id", userId);
   if (error) throw new Error(error.message);
 }
 
@@ -678,53 +316,156 @@ type BonusRow = {
   user_id: string;
   valor: number;
   descricao: string;
+  recorrente: boolean;
   created_at: string;
 };
 
 function toBonus(row: BonusRow): Bonus {
-  return { id: row.id, valor: row.valor, descricao: row.descricao };
+  return { id: row.id, valor: row.valor, descricao: row.descricao, recorrente: row.recorrente ?? false };
 }
 
-export async function listBonuses(
-  _accessToken: string,
-  userId: string,
-): Promise<Bonus[]> {
-  const supabase = createSupabaseServiceClient();
-  const { data, error } = await supabase
+export async function listBonuses(_: string, userId: string): Promise<Bonus[]> {
+  const sb = createSupabaseServiceClient();
+  const { data, error } = await sb
     .from("bonuses")
-    .select("id,user_id,valor,descricao,created_at")
+    .select("id,user_id,valor,descricao,recorrente,created_at")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
   if (error) throw new Error(error.message);
-  return (data ?? []).map((row) => toBonus(row as BonusRow));
+  return (data ?? []).map((r) => toBonus(r as BonusRow));
 }
 
-export async function appendBonus(
-  _accessToken: string,
-  userId: string,
-  input: BonusInput,
-): Promise<Bonus> {
-  const supabase = createSupabaseServiceClient();
-  const id = newId();
-  const { data, error } = await supabase
+export async function appendBonus(_: string, userId: string, input: BonusInput): Promise<Bonus> {
+  const sb = createSupabaseServiceClient();
+  const { data, error } = await sb
     .from("bonuses")
-    .insert({ id, user_id: userId, valor: input.valor, descricao: input.descricao })
-    .select("id,user_id,valor,descricao,created_at")
+    .insert({ id: newId(), user_id: userId, valor: input.valor, descricao: input.descricao, recorrente: input.recorrente ?? false })
+    .select("id,user_id,valor,descricao,recorrente,created_at")
     .single();
   if (error) throw new Error(error.message);
   return toBonus(data as BonusRow);
 }
 
-export async function deleteBonus(
-  _accessToken: string,
-  userId: string,
-  id: string,
-): Promise<void> {
-  const supabase = createSupabaseServiceClient();
-  const { error } = await supabase
-    .from("bonuses")
-    .delete()
-    .eq("id", id)
-    .eq("user_id", userId);
+export async function deleteBonus(_: string, userId: string, id: string): Promise<void> {
+  const sb = createSupabaseServiceClient();
+  const { error } = await sb.from("bonuses").delete().eq("id", id).eq("user_id", userId);
   if (error) throw new Error(error.message);
+}
+
+// ─── Previsões ────────────────────────────────────────────────────────────────
+
+type PrevisaoRow = {
+  id: string;
+  user_id: string;
+  descricao: string;
+  valor: number;
+  data_prevista: string;
+  parcelada: boolean;
+  total_parcelas: number | null;
+  valor_parcela: number;
+  categoria: string;
+  created_at: string;
+};
+
+function toPrevisao(row: PrevisaoRow): Previsao {
+  return {
+    id: row.id,
+    descricao: row.descricao,
+    valor: row.valor,
+    dataPrevista: row.data_prevista,
+    parcelada: row.parcelada,
+    totalParcelas: row.total_parcelas,
+    valorParcela: row.valor_parcela,
+    categoria: row.categoria ?? "Previsão",
+    createdAt: row.created_at,
+  };
+}
+
+const PREVISAO_COLS =
+  "id,user_id,descricao,valor,data_prevista,parcelada,total_parcelas,valor_parcela,categoria,created_at";
+
+export async function listPrevisoes(_: string, userId: string): Promise<Previsao[]> {
+  const sb = createSupabaseServiceClient();
+  const { data, error } = await sb
+    .from("previsoes")
+    .select(PREVISAO_COLS)
+    .eq("user_id", userId)
+    .order("data_prevista", { ascending: true });
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((r) => toPrevisao(r as PrevisaoRow));
+}
+
+export async function appendPrevisao(_: string, userId: string, input: PrevisaoInput): Promise<Previsao> {
+  const sb = createSupabaseServiceClient();
+  const n = (v: unknown) => Number(v) || 0;
+  const valor = input.parcelada && input.totalParcelas && input.valorParcela
+    ? n(input.totalParcelas) * n(input.valorParcela)
+    : n(input.valor);
+  const { data, error } = await sb
+    .from("previsoes")
+    .insert({
+      id: newId(),
+      user_id: userId,
+      descricao: input.descricao,
+      valor,
+      data_prevista: input.dataPrevista,
+      parcelada: input.parcelada,
+      total_parcelas: input.totalParcelas,
+      valor_parcela: input.valorParcela,
+      categoria: input.categoria ?? "Previsão",
+    })
+    .select(PREVISAO_COLS)
+    .single();
+  if (error) throw new Error(error.message);
+  return toPrevisao(data as PrevisaoRow);
+}
+
+export async function updatePrevisao(_: string, userId: string, id: string, input: PrevisaoInput): Promise<Previsao> {
+  const sb = createSupabaseServiceClient();
+  const n = (v: unknown) => Number(v) || 0;
+  const valor = input.parcelada && input.totalParcelas && input.valorParcela
+    ? n(input.totalParcelas) * n(input.valorParcela)
+    : n(input.valor);
+  const { data, error } = await sb
+    .from("previsoes")
+    .update({
+      descricao: input.descricao,
+      valor,
+      data_prevista: input.dataPrevista,
+      parcelada: input.parcelada,
+      total_parcelas: input.totalParcelas,
+      valor_parcela: input.valorParcela,
+      categoria: input.categoria ?? "Previsão",
+    })
+    .eq("id", id)
+    .eq("user_id", userId)
+    .select(PREVISAO_COLS)
+    .single();
+  if (error) throw new Error(error.message);
+  return toPrevisao(data as PrevisaoRow);
+}
+
+export async function deletePrevisao(_: string, userId: string, id: string): Promise<void> {
+  const sb = createSupabaseServiceClient();
+  const { error } = await sb.from("previsoes").delete().eq("id", id).eq("user_id", userId);
+  if (error) throw new Error(error.message);
+}
+
+// ─── Histórico agregado ───────────────────────────────────────────────────────
+
+export async function listAllComprasAndCobrancasAndBonuses(_: string, userId: string) {
+  const sb = createSupabaseServiceClient();
+  const [comprasRes, cobrancasRes, bonusesRes] = await Promise.all([
+    sb.from("compras").select(COMPRA_COLS).eq("user_id", userId).order("created_at", { ascending: false }),
+    sb.from("cobrancas").select(COBRANCA_COLS).eq("user_id", userId).order("created_at", { ascending: false }),
+    sb.from("bonuses").select("id,user_id,valor,descricao,created_at").eq("user_id", userId).order("created_at", { ascending: false }),
+  ]);
+  if (comprasRes.error) throw new Error(comprasRes.error.message);
+  if (cobrancasRes.error) throw new Error(cobrancasRes.error.message);
+  if (bonusesRes.error) throw new Error(bonusesRes.error.message);
+  return {
+    compras: (comprasRes.data ?? []).map((r) => toCompra(r as CompraRow)),
+    cobrancas: (cobrancasRes.data ?? []).map((r) => toCobranca(r as CobrancaRow)),
+    bonuses: (bonusesRes.data ?? []) as { id: string; valor: number; descricao: string; created_at: string }[],
+  };
 }

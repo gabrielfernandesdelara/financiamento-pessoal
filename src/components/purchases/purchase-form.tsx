@@ -14,7 +14,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { CompraInputSchema, type CompraInput, type Compra } from "@/types/compra";
+import { CompraInputSchema, type CompraInput, type Compra, CATEGORIAS_SUGERIDAS } from "@/types/compra";
 import { todayISO } from "@/lib/utils";
 
 type Props = {
@@ -34,6 +34,7 @@ const DEFAULTS: CompraInput = {
   dataInicio: todayISO(),
   valorParcela: 0,
   valorTotal: 0,
+  categoria: "Outros",
 };
 
 export function PurchaseForm({ open, onOpenChange, initial, onSubmit, isSubmitting }: Props) {
@@ -59,6 +60,7 @@ export function PurchaseForm({ open, onOpenChange, initial, onSubmit, isSubmitti
               dataInicio: initial.dataInicio,
               valorParcela: initial.valorParcela,
               valorTotal: initial.valorTotal,
+              categoria: initial.categoria ?? "Outros",
             }
           : DEFAULTS,
       );
@@ -113,6 +115,19 @@ export function PurchaseForm({ open, onOpenChange, initial, onSubmit, isSubmitti
             {form.formState.errors.cartaoOuPessoa && (
               <p className="text-xs text-destructive">{form.formState.errors.cartaoOuPessoa.message}</p>
             )}
+          </div>
+
+          <div className="grid gap-2">
+            <Label htmlFor="categoria">Categoria</Label>
+            <Input
+              id="categoria"
+              list="categorias-compra"
+              placeholder="Eletrônicos, Alimentação…"
+              {...form.register("categoria")}
+            />
+            <datalist id="categorias-compra">
+              {CATEGORIAS_SUGERIDAS.map((c) => <option key={c} value={c} />)}
+            </datalist>
           </div>
 
           <div className="grid gap-2">
