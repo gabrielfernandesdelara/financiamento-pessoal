@@ -1,0 +1,86 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 99%;
+    --foreground: 220 13% 13%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 220 13% 13%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 13% 13%;
+
+    /* Google blue */
+    --primary: 217 89% 53%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 14% 96%;
+    --secondary-foreground: 220 13% 13%;
+
+    --muted: 220 14% 96%;
+    --muted-foreground: 220 9% 46%;
+
+    --accent: 217 92% 95%;
+    --accent-foreground: 217 89% 35%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 70% 45%;
+    --success-foreground: 0 0% 100%;
+
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 217 89% 53%;
+
+    --radius: 1rem;
+  }
+
+  .dark {
+    --background: 220 14% 8%;
+    --foreground: 0 0% 98%;
+    --card: 220 13% 11%;
+    --card-foreground: 0 0% 98%;
+    --popover: 220 13% 11%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 217 89% 60%;
+    --primary-foreground: 220 13% 8%;
+    --secondary: 220 13% 16%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 220 13% 16%;
+    --muted-foreground: 220 9% 65%;
+    --accent: 220 13% 18%;
+    --accent-foreground: 217 89% 75%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 98%;
+    --success: 142 70% 45%;
+    --success-foreground: 0 0% 98%;
+    --border: 220 13% 18%;
+    --input: 220 13% 18%;
+    --ring: 217 89% 60%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html,
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "cv11", "ss01";
+  }
+  body {
+    min-height: 100dvh;
+  }
+}
+
+/* Recharts tweaks */
+.recharts-default-tooltip {
+  border-radius: 12px !important;
+  border: 1px solid hsl(var(--border)) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
