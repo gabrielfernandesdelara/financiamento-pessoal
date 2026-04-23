@@ -13,7 +13,7 @@ export function BottomNav() {
       aria-label="Primary"
       className="md:hidden fixed inset-x-0 bottom-0 z-40 border-t border-border/60 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/70 pb-[env(safe-area-inset-bottom)]"
     >
-      <ul className="grid grid-cols-4">
+      <ul className="grid grid-cols-5">
         {NAV_ITEMS.filter((i) => i.mobile).map((item) => {
           const active =
             item.href === "/"

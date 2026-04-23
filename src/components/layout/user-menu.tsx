@@ -1,10 +1,12 @@
 "use client";
 
-import { signIn, signOut, useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
+import { signOut, useSession } from "next-auth/react";
 import { LogIn, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export function UserMenu() {
+  const router = useRouter();
   const { data: session, status } = useSession();
 
   if (status === "loading") {
@@ -18,10 +20,10 @@ export function UserMenu() {
       <Button
         variant="outline"
         className="w-full"
-        onClick={() => signIn("google")}
+        onClick={() => router.push("/login")}
       >
         <LogIn className="h-4 w-4" />
-        Entrar com Google
+        Entrar
       </Button>
     );
   }

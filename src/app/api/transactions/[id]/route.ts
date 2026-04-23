@@ -4,13 +4,13 @@ import {
   updateTransaction,
 } from "@/services/sheets";
 import { TransactionInputSchema } from "@/types/transaction";
-import { jsonError, requireAuthedSheet } from "@/lib/api-helpers";
+import { jsonError, requireAuthedUser } from "@/lib/api-helpers";
 
 type RouteCtx = { params: Promise<{ id: string }> };
 
 export async function PUT(req: Request, ctx: RouteCtx) {
   try {
-    const result = await requireAuthedSheet();
+    const result = await requireAuthedUser();
     if (!result.ok) return result.response;
     const { id } = await ctx.params;
     const body = await req.json();
@@ -23,7 +23,7 @@ export async function PUT(req: Request, ctx: RouteCtx) {
     }
     const updated = await updateTransaction(
       result.ctx.accessToken,
-      result.ctx.spreadsheetId,
+      result.ctx.userId,
       id,
       parsed.data,
     );
@@ -35,12 +35,12 @@ export async function PUT(req: Request, ctx: RouteCtx) {
 
 export async function DELETE(_req: Request, ctx: RouteCtx) {
   try {
-    const result = await requireAuthedSheet();
+    const result = await requireAuthedUser();
     if (!result.ok) return result.response;
     const { id } = await ctx.params;
     await deleteTransaction(
       result.ctx.accessToken,
-      result.ctx.spreadsheetId,
+      result.ctx.userId,
       id,
     );
     return NextResponse.json({ ok: true });

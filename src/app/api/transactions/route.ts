@@ -2,17 +2,18 @@ import { NextResponse } from "next/server";
 import {
   appendTransaction,
   listTransactions,
+  deleteAllTransactions,
 } from "@/services/sheets";
 import { TransactionInputSchema } from "@/types/transaction";
-import { jsonError, requireAuthedSheet } from "@/lib/api-helpers";
+import { jsonError, requireAuthedUser } from "@/lib/api-helpers";
 
 export async function GET() {
   try {
-    const result = await requireAuthedSheet();
+    const result = await requireAuthedUser();
     if (!result.ok) return result.response;
     const transactions = await listTransactions(
       result.ctx.accessToken,
-      result.ctx.spreadsheetId,
+      result.ctx.userId,
     );
     return NextResponse.json(transactions);
   } catch (err) {
@@ -22,7 +23,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    const result = await requireAuthedSheet();
+    const result = await requireAuthedUser();
     if (!result.ok) return result.response;
     const body = await req.json();
     const parsed = TransactionInputSchema.safeParse(body);
@@ -34,10 +35,21 @@ export async function POST(req: Request) {
     }
     const created = await appendTransaction(
       result.ctx.accessToken,
-      result.ctx.spreadsheetId,
+      result.ctx.userId,
       parsed.data,
     );
     return NextResponse.json(created, { status: 201 });
+  } catch (err) {
+    return jsonError(err);
+  }
+}
+
+export async function DELETE() {
+  try {
+    const result = await requireAuthedUser();
+    if (!result.ok) return result.response;
+    await deleteAllTransactions(result.ctx.accessToken, result.ctx.userId);
+    return NextResponse.json({ ok: true });
   } catch (err) {
     return jsonError(err);
   }

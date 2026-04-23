@@ -1,18 +1,17 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { findOrCreateSpreadsheet } from "@/services/sheets";
 
 export type AuthedContext = {
+  userId: string;
   accessToken: string;
-  spreadsheetId: string;
 };
 
-export async function requireAuthedSheet(): Promise<
+export async function requireAuthedUser(): Promise<
   | { ok: true; ctx: AuthedContext }
   | { ok: false; response: NextResponse }
 > {
   const session = await auth();
-  if (!session?.accessToken || session.error) {
+  if (!session?.user?.id || !session.accessToken) {
     return {
       ok: false,
       response: NextResponse.json(
@@ -21,10 +20,9 @@ export async function requireAuthedSheet(): Promise<
       ),
     };
   }
-  const spreadsheetId = await findOrCreateSpreadsheet(session.accessToken);
   return {
     ok: true,
-    ctx: { accessToken: session.accessToken, spreadsheetId },
+    ctx: { userId: session.user.id, accessToken: session.accessToken },
   };
 }
 

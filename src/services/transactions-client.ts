@@ -1,7 +1,4 @@
-import type {
-  Transaction,
-  TransactionInput,
-} from "@/types/transaction";
+import type { Transaction, TransactionInput } from "@/types/transaction";
 
 async function handle<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -11,17 +8,9 @@ async function handle<T>(res: Response): Promise<T> {
   return (await res.json()) as T;
 }
 
-export type BulkImportResponse = {
-  inserted: number;
-  skipped: number;
-  transactions: Transaction[];
-};
-
 export const transactionsClient = {
   list: () =>
-    fetch("/api/transactions", { cache: "no-store" }).then(
-      handle<Transaction[]>,
-    ),
+    fetch("/api/transactions", { cache: "no-store" }).then(handle<Transaction[]>),
 
   create: (input: TransactionInput) =>
     fetch("/api/transactions", {
@@ -38,14 +27,5 @@ export const transactionsClient = {
     }).then(handle<Transaction>),
 
   remove: (id: string) =>
-    fetch(`/api/transactions/${id}`, { method: "DELETE" }).then(
-      handle<{ ok: true }>,
-    ),
-
-  bulk: (transactions: Array<TransactionInput & { id?: string }>) =>
-    fetch("/api/transactions/bulk", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ transactions }),
-    }).then(handle<BulkImportResponse>),
+    fetch(`/api/transactions/${id}`, { method: "DELETE" }).then(handle<{ ok: true }>),
 };

@@ -1,151 +1,113 @@
 # Finance — Personal money dashboard
 
-A modern, mobile-first personal finance web app built with **Next.js 15 (App
-Router) + TypeScript**, styled with **Tailwind + shadcn/ui** in a Material
-Design 3 spirit. Transactions are stored in a Google Sheet that lives on the
-user's own Google Drive — no extra database required.
+Aplicativo web para controle financeiro pessoal com **Next.js 15 + TypeScript**, UI com **Tailwind + shadcn/ui**, autenticacao via **NextAuth + Supabase Auth** e persistencia no **Supabase Postgres**.
 
-## Features
+## Funcionalidades
 
-- **Dashboard** — current balance, monthly income/expenses, balance evolution,
-  expenses by category, monthly comparison and % change vs. previous month.
-- **Transactions** — full CRUD with form validation, filterable list (month,
-  category, type, date range), sortable desktop table, mobile card list.
-- **Categories** — per-category breakdown of income/expenses.
-- **Reports** — 12-month trends and all-time analytics.
-- **Mobile-first** — bottom tab bar on mobile, sidebar on desktop, large tap
-  targets, fixed FAB for quick add, safe-area aware.
-- **Material 3 vibes** — soft shadows, rounded corners, generous whitespace,
-  Google blue accent.
-- **Toasts, skeletons, empty states** for polished UX.
+- Dashboard com saldo, receitas, despesas e graficos.
+- CRUD completo de transacoes.
+- CRUD de compras parceladas.
+- CRUD de receitas.
+- Importacao em lote de transacoes.
+- Experiencia mobile-first.
 
-## Tech stack
+## Stack
 
-| Concern         | Choice                                   |
-| --------------- | ---------------------------------------- |
-| Framework       | Next.js 15 (App Router)                  |
-| Language        | TypeScript                               |
-| Styling         | Tailwind CSS + shadcn/ui                 |
-| Data fetching   | TanStack Query (React Query)             |
-| Forms           | React Hook Form + Zod                    |
-| Charts          | Recharts                                 |
-| Icons           | lucide-react                             |
-| Auth            | Auth.js (next-auth v5) — Google provider |
-| Database        | Google Sheets API + Google Drive API     |
+- Next.js 15 (App Router)
+- TypeScript
+- Tailwind CSS + shadcn/ui
+- TanStack Query
+- React Hook Form + Zod
+- NextAuth v5 (Credentials)
+- Supabase (Auth + Postgres)
 
-## Project structure
+## Configuracao
 
-```
-src/
-├─ app/
-│  ├─ layout.tsx, providers.tsx, globals.css
-│  ├─ page.tsx                ← Dashboard
-│  ├─ transactions/page.tsx
-│  ├─ categories/page.tsx
-│  ├─ reports/page.tsx
-│  ├─ login/page.tsx
-│  └─ api/
-│     ├─ auth/[...nextauth]/route.ts
-│     └─ transactions/
-│        ├─ route.ts          ← GET, POST
-│        └─ [id]/route.ts     ← PUT, DELETE
-├─ components/
-│  ├─ ui/                     ← shadcn primitives
-│  ├─ layout/                 ← Sidebar, BottomNav, TopBar, AppShell
-│  ├─ dashboard/              ← MetricCard, ChartCard, charts
-│  ├─ transactions/           ← Form, Card, Table, Filters
-│  └─ shared/                 ← EmptyState, Fab, PageHeader, …
-├─ services/
-│  ├─ sheets.ts               ← Google Sheets/Drive service layer
-│  └─ transactions-client.ts  ← Browser fetch wrapper
-├─ hooks/
-│  ├─ use-transactions.ts     ← React Query hooks
-│  ├─ use-media-query.ts
-│  └─ use-toast.ts
-├─ lib/
-│  ├─ auth.ts                 ← NextAuth config (Google + scopes)
-│  ├─ api-helpers.ts
-│  ├─ analytics.ts            ← totals, timelines, breakdowns
-│  └─ utils.ts                ← cn, formatters
-└─ types/
-   └─ transaction.ts          ← Zod schemas + types
-```
-
-## Google Sheets persistence
-
-After login, the API:
-
-1. Searches the user's Drive for a spreadsheet named **`Finance App Data`**
-   via the Drive API (`drive.files.list`).
-2. If it exists → uses that spreadsheet ID.
-3. If it doesn't → creates a new spreadsheet with a `transactions` sheet and
-   the header row (`id`, `date`, `description`, `amount`, `type`, `category`,
-   `recurring`).
-
-The spreadsheet ID is **never persisted client-side** — the Google account is
-the source of truth, so the same user gets the same sheet on any device.
-
-OAuth scopes requested:
-
-- `https://www.googleapis.com/auth/spreadsheets`
-- `https://www.googleapis.com/auth/drive.file`
-
-The `drive.file` scope only grants access to files this app creates or that
-the user explicitly opens with it — your other Drive files stay private.
-
-## Setup
-
-### 1. Install dependencies
+### 1. Instalar dependencias
 
 ```bash
-npm install
+pnpm install
 ```
 
-### 2. Configure Google OAuth
+### 2. Configurar variaveis de ambiente
 
-1. Create a project at [Google Cloud Console](https://console.cloud.google.com).
-2. Enable **Google Sheets API** and **Google Drive API**.
-3. Configure the **OAuth consent screen** and add the two scopes listed above.
-4. Create an **OAuth 2.0 Client ID** (Web application) with:
-   - Authorized JavaScript origin: `http://localhost:3000`
-   - Authorized redirect URI: `http://localhost:3000/api/auth/callback/google`
-
-### 3. Environment variables
-
-Copy `.env.example` to `.env.local` and fill in:
+Copie [.env.example](.env.example) para `.env.local`:
 
 ```bash
-AUTH_SECRET=...        # openssl rand -base64 32
-AUTH_URL=http://localhost:3000
-AUTH_GOOGLE_ID=...
-AUTH_GOOGLE_SECRET=...
+cp .env.example .env.local
 ```
 
-### 4. Run the dev server
+Preencha:
+
+- `AUTH_SECRET`
+- `AUTH_URL=http://localhost:3000`
+- `SUPABASE_URL`
+- `SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+
+### 3. Criar schema no Supabase
+
+No SQL Editor do Supabase, execute:
+
+```sql
+create table if not exists public.transactions (
+  id text not null,
+  user_id uuid not null,
+  date date not null,
+  description text not null,
+  amount numeric(14,2) not null,
+  type text not null check (type in ('income','expense')),
+  category text not null,
+  recurring boolean not null default false,
+  created_at timestamptz not null default now(),
+  primary key (id, user_id)
+);
+
+create table if not exists public.purchases (
+  id text not null,
+  user_id uuid not null,
+  produto text not null,
+  pagar_onde text not null,
+  parcela_atual int,
+  parcela_total int,
+  mes_pagamento text not null,
+  valor_parcela numeric(14,2) not null,
+  valor_total numeric(14,2) not null,
+  dia_para_pagar int,
+  created_at timestamptz not null default now(),
+  primary key (id, user_id)
+);
+
+create table if not exists public.income (
+  id text not null,
+  user_id uuid not null,
+  fonte text not null,
+  valor numeric(14,2) not null,
+  created_at timestamptz not null default now(),
+  primary key (id, user_id)
+);
+
+create index if not exists transactions_user_id_idx on public.transactions (user_id);
+create index if not exists purchases_user_id_idx on public.purchases (user_id);
+create index if not exists income_user_id_idx on public.income (user_id);
+```
+
+### 4. Criar usuario no Supabase Auth
+
+Use o painel do Supabase em **Authentication > Users** para criar um usuario com email/senha (ou habilite signup para criar via fluxo proprio).
+
+### 5. Rodar em desenvolvimento
 
 ```bash
-npm run dev
+pnpm dev
 ```
 
-Open <http://localhost:3000>, sign in with Google, and start tracking.
+Abra `http://localhost:3000`.
 
 ## Scripts
 
-| Command           | Description           |
-| ----------------- | --------------------- |
-| `npm run dev`     | Start dev server      |
-| `npm run build`   | Production build      |
-| `npm run start`   | Run production build  |
-| `npm run lint`    | ESLint                |
-| `npm run typecheck` | TypeScript check    |
-
-## Notes
-
-- Deleting a transaction uses the row index inside the sheet — concurrent
-  edits from another tab while a delete is in flight could collide. The
-  service re-fetches by ID before each mutation to keep this safe in
-  practice.
-- The Sheets API has per-user quota limits. React Query is configured with a
-  30-second `staleTime` to avoid unnecessary refetches.
-- For production, set `AUTH_URL` to your deployed origin and add the
-  matching redirect URI in Google Cloud Console.
+- `pnpm dev`: sobe servidor local
+- `pnpm build`: build de producao
+- `pnpm start`: roda build
+- `pnpm lint`: linter
+- `pnpm typecheck`: validacao TypeScript

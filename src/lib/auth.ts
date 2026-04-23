@@ -1,97 +1,108 @@
 import NextAuth, { type DefaultSession } from "next-auth";
-import Google from "next-auth/providers/google";
-import type { JWT } from "next-auth/jwt";
-
-const SCOPES = [
-  "openid",
-  "email",
-  "profile",
-  "https://www.googleapis.com/auth/spreadsheets",
-  "https://www.googleapis.com/auth/drive.file",
-].join(" ");
+import Credentials from "next-auth/providers/credentials";
+import { createSupabaseAnonClient } from "@/lib/supabase";
 
 declare module "next-auth" {
   interface Session {
-    accessToken?: string;
-    error?: "RefreshAccessTokenError";
-    user: DefaultSession["user"];
+    user: DefaultSession["user"] & { id: string };
+    accessToken: string;
   }
 }
 
-declare module "next-auth/jwt" {
-  interface JWT {
-    accessToken?: string;
-    refreshToken?: string;
-    expiresAt?: number;
-    error?: "RefreshAccessTokenError";
-  }
-}
-
-async function refreshGoogleToken(token: {
-  refreshToken?: string;
+// NextAuth v5 beta stores custom JWT fields as unknown — we use a helper type for casting
+type CustomJWT = {
+  userId?: string;
   accessToken?: string;
+  refreshToken?: string;
   expiresAt?: number;
-}) {
-  try {
-    if (!token.refreshToken) throw new Error("Missing refresh token");
-    const res = await fetch("https://oauth2.googleapis.com/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        client_id: process.env.AUTH_GOOGLE_ID!,
-        client_secret: process.env.AUTH_GOOGLE_SECRET!,
-        grant_type: "refresh_token",
-        refresh_token: token.refreshToken,
-      }),
-    });
-    const data = (await res.json()) as {
-      access_token: string;
-      expires_in: number;
-      refresh_token?: string;
-    };
-    if (!res.ok) throw new Error("Refresh failed");
-    return {
-      ...token,
-      accessToken: data.access_token,
-      expiresAt: Math.floor(Date.now() / 1000) + data.expires_in,
-      refreshToken: data.refresh_token ?? token.refreshToken,
-    };
-  } catch (err) {
-    console.error("[auth] refresh error", err);
-    return { ...token, error: "RefreshAccessTokenError" as const };
-  }
-}
+};
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
-    Google({
-      clientId: process.env.AUTH_GOOGLE_ID,
-      clientSecret: process.env.AUTH_GOOGLE_SECRET,
-      authorization: {
-        params: {
-          scope: SCOPES,
-          access_type: "offline",
-          prompt: "consent",
-        },
+    Credentials({
+      name: "Supabase",
+      credentials: {
+        email: { label: "Email", type: "email" },
+        password: { label: "Senha", type: "password" },
+      },
+      async authorize(credentials) {
+        const email = credentials?.email?.toString().trim() ?? "";
+        const password = credentials?.password?.toString() ?? "";
+        if (!email || !password) return null;
+
+        const supabase = createSupabaseAnonClient();
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+
+        if (error || !data.user || !data.session) return null;
+
+        return {
+          id: data.user.id,
+          name:
+            (data.user.user_metadata?.full_name as string | undefined) ??
+            data.user.email,
+          email: data.user.email,
+          image: null,
+          // extra fields picked up in the jwt callback via user object
+          _accessToken: data.session.access_token,
+          _refreshToken: data.session.refresh_token,
+          _expiresAt: data.session.expires_at,
+        };
       },
     }),
   ],
   callbacks: {
-    async jwt({ token, account }) {
-      if (account) {
-        token.accessToken = account.access_token;
-        token.refreshToken = account.refresh_token;
-        token.expiresAt = account.expires_at;
-        return token;
+    async jwt({ token, user }) {
+      const t = token as typeof token & CustomJWT;
+
+      // First sign-in: store session data in JWT
+      if (user) {
+        const u = user as Record<string, unknown>;
+        t.userId = user.id ?? "";
+        t.accessToken = typeof u._accessToken === "string" ? u._accessToken : undefined;
+        t.refreshToken = typeof u._refreshToken === "string" ? u._refreshToken : undefined;
+        t.expiresAt = typeof u._expiresAt === "number" ? u._expiresAt : undefined;
+        return t;
       }
-      if (token.expiresAt && Date.now() / 1000 < token.expiresAt - 60) {
-        return token;
+
+      // Token still valid (with 60s buffer)
+      const now = Math.floor(Date.now() / 1000);
+      const expiresAt = typeof t.expiresAt === "number" ? t.expiresAt : 0;
+      if (expiresAt > 0 && now < expiresAt - 60) return t;
+
+      // Refresh expired token
+      const refreshToken = typeof t.refreshToken === "string" ? t.refreshToken : null;
+      if (!refreshToken) return t;
+
+      try {
+        const supabase = createSupabaseAnonClient();
+        const { data, error } = await supabase.auth.refreshSession({
+          refresh_token: refreshToken,
+        });
+
+        if (error || !data.session) throw error ?? new Error("No session");
+
+        t.accessToken = data.session.access_token;
+        t.refreshToken = data.session.refresh_token ?? undefined;
+        t.expiresAt = data.session.expires_at ?? undefined;
+      } catch {
+        // Keep stale token; user sees auth error on next API call
       }
-      return refreshGoogleToken(token);
+
+      return t;
     },
+
     async session({ session, token }) {
-      session.accessToken = token.accessToken;
-      session.error = token.error;
+      const t = token as typeof token & CustomJWT;
+
+      if (!t.userId || !t.accessToken || !session.user) {
+        throw new Error("Sessao invalida");
+      }
+
+      session.user.id = t.userId;
+      session.accessToken = t.accessToken;
       return session;
     },
   },

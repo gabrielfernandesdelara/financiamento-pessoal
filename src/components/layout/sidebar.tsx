@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Wallet } from "lucide-react";
 import { NAV_ITEMS } from "./nav-items";
+import { ThemeToggle } from "./theme-toggle";
 import { cn } from "@/lib/utils";
 import { UserMenu } from "./user-menu";
 
@@ -19,7 +20,7 @@ export function Sidebar() {
         <span className="grid h-9 w-9 place-items-center rounded-2xl bg-primary text-primary-foreground shadow-soft">
           <Wallet className="h-5 w-5" />
         </span>
-        Finanças
+        Financeiro Pessoal
       </Link>
 
       <nav className="flex flex-col gap-1">
@@ -47,8 +48,9 @@ export function Sidebar() {
         })}
       </nav>
 
-      <div className="mt-auto">
+      <div className="mt-auto flex items-center justify-between px-2">
         <UserMenu />
+        <ThemeToggle />
       </div>
     </aside>
   );
