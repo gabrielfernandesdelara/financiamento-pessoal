@@ -30,6 +30,7 @@ export async function POST(req: Request) {
       result.ctx.accessToken,
       result.ctx.userId,
       parsed.data,
+      result.ctx.userName,
     );
     return NextResponse.json(created, { status: 201 });
   } catch (err) {

@@ -40,10 +40,7 @@ export function UserMenu() {
       )}
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium">
-          {session.user.name}
-        </p>
-        <p className="truncate text-xs text-muted-foreground">
-          {session.user.email}
+          {session.user.name ?? "Usuário"}
         </p>
       </div>
       <Button

@@ -1,4 +1,4 @@
-import { type Compra, type CompraInput } from "@/types/compra";
+import { type Compra, type CompraInput, type Participante } from "@/types/compra";
 import { type Profile, type ProfileInput } from "@/types/profile";
 import { type Cobranca, type CobrancaInput } from "@/types/cobranca";
 import { type Bonus, type BonusInput } from "@/types/bonus";
@@ -29,9 +29,17 @@ type CompraRow = {
   categoria: string;
   quitada: boolean;
   created_at: string;
+  dividida: boolean;
+  adicionado_por: string | null;
+  sem_data_termino: boolean;
+  dividido_com: string | null;
 };
 
 function toCompra(row: CompraRow): Compra {
+  let divididoCom: string[] | null = null;
+  if (row.dividido_com) {
+    try { divididoCom = JSON.parse(row.dividido_com); } catch { divididoCom = null; }
+  }
   return {
     id: row.id,
     nome: row.nome,
@@ -45,80 +53,181 @@ function toCompra(row: CompraRow): Compra {
     categoria: row.categoria ?? "Outros",
     quitada: row.quitada ?? false,
     createdAt: row.created_at,
+    dividida: row.dividida ?? false,
+    adicionadoPor: row.adicionado_por ?? null,
+    semDataTermino: row.sem_data_termino ?? false,
+    divididoCom,
   };
 }
 
+// Full column list (requires migrations to be applied)
 const COMPRA_COLS =
-  "id,user_id,nome,cartao_ou_pessoa,total_parcelas,parcelas_restantes,data_inicio,valor_parcela,valor_total,parcelada,categoria,quitada,created_at";
+  "id,user_id,nome,cartao_ou_pessoa,total_parcelas,parcelas_restantes,data_inicio,valor_parcela,valor_total,parcelada,categoria,quitada,created_at,dividida,adicionado_por,sem_data_termino,dividido_com";
+
+// Fallback without new columns (pre-migration compatibility)
+const COMPRA_COLS_BASE =
+  "id,user_id,nome,cartao_ou_pessoa,total_parcelas,parcelas_restantes,data_inicio,valor_parcela,valor_total,parcelada,categoria,quitada,created_at,dividida,adicionado_por";
+
+async function queryCompras(
+  sb: ReturnType<typeof createSupabaseServiceClient>,
+  userId: string,
+  quitada?: boolean,
+): Promise<CompraRow[]> {
+  let query = sb.from("compras").select(COMPRA_COLS).eq("user_id", userId);
+  if (quitada !== undefined) query = query.eq("quitada", quitada);
+  query = query.order("created_at", { ascending: false });
+  const { data, error } = await query;
+
+  if (!error) return (data ?? []) as CompraRow[];
+
+  // Fallback: new columns may not exist yet in the database
+  console.warn("[compras] full query failed, falling back to base cols:", error.message);
+  let fallback = sb.from("compras").select(COMPRA_COLS_BASE).eq("user_id", userId);
+  if (quitada !== undefined) fallback = fallback.eq("quitada", quitada);
+  fallback = fallback.order("created_at", { ascending: false });
+  const { data: d2, error: e2 } = await fallback;
+  if (e2) throw new Error(e2.message);
+  return (d2 ?? []) as CompraRow[];
+}
 
 export async function listCompras(_: string, userId: string): Promise<Compra[]> {
   const sb = createSupabaseServiceClient();
-  const { data, error } = await sb
-    .from("compras")
-    .select(COMPRA_COLS)
-    .eq("user_id", userId)
-    .eq("quitada", false)
-    .order("created_at", { ascending: false });
-  if (error) throw new Error(error.message);
-  return (data ?? []).map((r) => toCompra(r as CompraRow));
+  const rows = await queryCompras(sb, userId, false);
+  return rows.map((r) => toCompra(r));
 }
 
 export async function listAllCompras(_: string, userId: string): Promise<Compra[]> {
   const sb = createSupabaseServiceClient();
-  const { data, error } = await sb
-    .from("compras")
-    .select(COMPRA_COLS)
-    .eq("user_id", userId)
-    .order("created_at", { ascending: false });
-  if (error) throw new Error(error.message);
-  return (data ?? []).map((r) => toCompra(r as CompraRow));
+  const rows = await queryCompras(sb, userId);
+  return rows.map((r) => toCompra(r));
 }
 
-export async function appendCompra(_: string, userId: string, input: CompraInput): Promise<Compra> {
+export async function findUserByEmail(email: string): Promise<string | null> {
   const sb = createSupabaseServiceClient();
-  const { data, error } = await sb
+  const { data, error } = await sb.rpc("find_user_by_email", { p_email: email });
+  if (!error && data) return String(data);
+  console.warn("[findUserByEmail] RPC failed:", error?.message);
+  return null;
+}
+
+export async function appendCompra(
+  _: string,
+  userId: string,
+  input: CompraInput,
+  adicionadoPorNome?: string,
+): Promise<Compra> {
+  const sb = createSupabaseServiceClient();
+
+  const participantes: Participante[] = input.participantes ?? [];
+  const totalPessoas = 1 + participantes.length;
+  const isDividida = participantes.length > 0;
+
+  const nomesParticipantes = participantes.map((p) =>
+    p.tipo === "cadastrado"
+      ? (p.nome?.trim() || `@${p.username}`)
+      : `${p.nome} (sem cadastro)`,
+  );
+
+  const baseRow = {
+    nome: input.nome,
+    cartao_ou_pessoa: input.cartaoOuPessoa,
+    total_parcelas: input.totalParcelas,
+    parcelas_restantes: input.parcelasRestantes ?? input.totalParcelas,
+    data_inicio: input.dataInicio,
+    valor_parcela: input.valorParcela / totalPessoas,
+    valor_total: input.valorTotal / totalPessoas,
+    parcelada: input.parcelada,
+    categoria: input.categoria ?? "Outros",
+    quitada: false,
+    dividida: isDividida,
+    sem_data_termino: input.semDataTermino ?? false,
+    dividido_com: isDividida ? JSON.stringify(nomesParticipantes) : null,
+  };
+
+  let insertResult = await sb
     .from("compras")
-    .insert({
-      id: newId(),
-      user_id: userId,
-      nome: input.nome,
-      cartao_ou_pessoa: input.cartaoOuPessoa,
-      total_parcelas: input.totalParcelas,
-      parcelas_restantes: input.parcelasRestantes ?? input.totalParcelas,
-      data_inicio: input.dataInicio,
-      valor_parcela: input.valorParcela,
-      valor_total: input.valorTotal,
-      parcelada: input.parcelada,
-      categoria: input.categoria ?? "Outros",
-      quitada: false,
-    })
+    .insert({ id: newId(), user_id: userId, ...baseRow, adicionado_por: null })
     .select(COMPRA_COLS)
     .single();
+
+  if (insertResult.error) {
+    // Fallback: new columns may not exist yet — insert without them
+    console.warn("[appendCompra] full insert failed, retrying without new cols:", insertResult.error.message);
+    const { sem_data_termino: _s, dividido_com: _d, ...baseRowCompat } = baseRow;
+    insertResult = await sb
+      .from("compras")
+      .insert({ id: newId(), user_id: userId, ...baseRowCompat, adicionado_por: null })
+      .select(COMPRA_COLS_BASE)
+      .single();
+  }
+
+  const { data, error } = insertResult;
   if (error) throw new Error(error.message);
+
+  const compraOrigId = (data as CompraRow).id;
+
+  for (const p of participantes) {
+    if (p.tipo === "cadastrado") {
+      const otherUserId = await findUserByUsername(p.username);
+      if (otherUserId && otherUserId !== userId) {
+        await sb.from("compras").insert({
+          id: newId(),
+          user_id: otherUserId,
+          ...baseRow,
+          dividido_com: null,
+          adicionado_por: adicionadoPorNome ?? "Outro usuário",
+        });
+      } else if (!otherUserId) {
+        console.warn("[appendCompra] User not found for username:", p.username);
+      }
+    } else {
+      // sem_cadastro: create cobrança
+      const valorDevido = input.valorTotal / totalPessoas;
+      const valorParcelaDividida = input.parcelada ? input.valorParcela / totalPessoas : null;
+      await sb.from("cobrancas").insert({
+        id: newId(),
+        user_id: userId,
+        nome_pessoa: p.nome,
+        valor_devido: valorDevido,
+        nome_compra: input.nome,
+        eh_parcelado: input.parcelada,
+        quantidade_parcelas: input.parcelada ? input.totalParcelas : null,
+        valor_total: input.valorTotal,
+        data_vencimento: input.dataInicio,
+        categoria: "Cobrança",
+        compra_origem_id: compraOrigId,
+        valor_parcela_dividida: valorParcelaDividida,
+      });
+    }
+  }
+
   return toCompra(data as CompraRow);
 }
 
 export async function updateCompra(_: string, userId: string, id: string, input: CompraInput): Promise<Compra> {
   const sb = createSupabaseServiceClient();
-  const { data, error } = await sb
-    .from("compras")
-    .update({
-      nome: input.nome,
-      cartao_ou_pessoa: input.cartaoOuPessoa,
-      total_parcelas: input.totalParcelas,
-      parcelas_restantes: input.parcelasRestantes ?? input.totalParcelas,
-      data_inicio: input.dataInicio,
-      valor_parcela: input.valorParcela,
-      valor_total: input.valorTotal,
-      parcelada: input.parcelada,
-      categoria: input.categoria ?? "Outros",
-    })
-    .eq("id", id)
-    .eq("user_id", userId)
-    .select(COMPRA_COLS)
-    .single();
-  if (error) throw new Error(error.message);
-  return toCompra(data as CompraRow);
+  const updatePayload: Record<string, unknown> = {
+    nome: input.nome,
+    cartao_ou_pessoa: input.cartaoOuPessoa,
+    total_parcelas: input.totalParcelas,
+    parcelas_restantes: input.parcelasRestantes ?? input.totalParcelas,
+    data_inicio: input.dataInicio,
+    valor_parcela: input.valorParcela,
+    valor_total: input.valorTotal,
+    parcelada: input.parcelada,
+    categoria: input.categoria ?? "Outros",
+    sem_data_termino: input.semDataTermino ?? false,
+  };
+
+  let updateResult = await sb.from("compras").update(updatePayload).eq("id", id).eq("user_id", userId).select(COMPRA_COLS).single();
+
+  if (updateResult.error) {
+    const { sem_data_termino: _s, ...compatPayload } = updatePayload;
+    updateResult = await sb.from("compras").update(compatPayload).eq("id", id).eq("user_id", userId).select(COMPRA_COLS_BASE).single();
+  }
+
+  if (updateResult.error) throw new Error(updateResult.error.message);
+  return toCompra(updateResult.data as CompraRow);
 }
 
 export async function deleteCompra(_: string, userId: string, id: string): Promise<void> {
@@ -132,12 +241,11 @@ export type PagarParcelaResult = { quitada: boolean; compra?: Compra };
 export async function pagarParcela(_: string, userId: string, id: string): Promise<PagarParcelaResult> {
   const sb = createSupabaseServiceClient();
 
-  const { data: current, error: fetchErr } = await sb
-    .from("compras")
-    .select(COMPRA_COLS)
-    .eq("id", id)
-    .eq("user_id", userId)
-    .single();
+  let fetchResult = await sb.from("compras").select(COMPRA_COLS).eq("id", id).eq("user_id", userId).single();
+  if (fetchResult.error) {
+    fetchResult = await sb.from("compras").select(COMPRA_COLS_BASE).eq("id", id).eq("user_id", userId).single();
+  }
+  const { data: current, error: fetchErr } = fetchResult;
 
   if (fetchErr || !current) throw new Error("Compra não encontrada");
   const compra = toCompra(current as CompraRow);
@@ -176,6 +284,45 @@ export async function pagarParcela(_: string, userId: string, id: string): Promi
   return { quitada: false, compra: toCompra(data as CompraRow) };
 }
 
+export type PagarTudoResult = { processadas: number };
+
+export async function pagarTudo(
+  _: string,
+  userId: string,
+  filtro?: string,
+): Promise<PagarTudoResult> {
+  const sb = createSupabaseServiceClient();
+
+  // Use the resilient helper; filter out recorrentes client-side as fallback
+  const allRows = await queryCompras(sb, userId, false);
+  let compras = allRows.map((r) => toCompra(r)).filter((c) => !c.semDataTermino);
+  if (filtro?.trim()) {
+    compras = compras.filter((c) => c.cartaoOuPessoa === filtro.trim());
+  }
+
+  let processadas = 0;
+  for (const c of compras) {
+    if (!c.parcelada) {
+      await sb.from("compras").update({ quitada: true }).eq("id", c.id).eq("user_id", userId);
+    } else {
+      const parcelas = c.parcelasRestantes ?? c.totalParcelas ?? 0;
+      const novas = Math.max(0, parcelas - 1);
+      if (novas === 0) {
+        await sb.from("compras")
+          .update({ quitada: true, parcelas_restantes: 0, valor_total: 0 })
+          .eq("id", c.id).eq("user_id", userId);
+      } else {
+        await sb.from("compras")
+          .update({ parcelas_restantes: novas, valor_total: novas * c.valorParcela })
+          .eq("id", c.id).eq("user_id", userId);
+      }
+    }
+    processadas++;
+  }
+
+  return { processadas };
+}
+
 // ─── Perfil ───────────────────────────────────────────────────────────────────
 
 type ProfileRow = {
@@ -183,17 +330,23 @@ type ProfileRow = {
   user_id: string;
   salario: number;
   saldo_restante: number;
+  username?: string | null;
 };
 
 function toProfile(row: ProfileRow): Profile {
-  return { id: row.id, salario: row.salario, saldoRestante: row.saldo_restante };
+  return {
+    id: row.id,
+    salario: row.salario,
+    saldoRestante: row.saldo_restante,
+    username: row.username ?? null,
+  };
 }
 
 export async function getProfile(_: string, userId: string): Promise<Profile | null> {
   const sb = createSupabaseServiceClient();
   const { data, error } = await sb
     .from("perfil")
-    .select("id,user_id,salario,saldo_restante")
+    .select("id,user_id,salario,saldo_restante,username")
     .eq("user_id", userId)
     .maybeSingle();
   if (error) throw new Error(error.message);
@@ -202,16 +355,55 @@ export async function getProfile(_: string, userId: string): Promise<Profile | n
 
 export async function upsertProfile(_: string, userId: string, input: ProfileInput): Promise<Profile> {
   const sb = createSupabaseServiceClient();
+
+  // Check if username is already taken by another user
+  if (input.username?.trim()) {
+    const { data: existing } = await sb
+      .from("perfil")
+      .select("user_id")
+      .ilike("username", input.username.trim())
+      .neq("user_id", userId)
+      .maybeSingle();
+    if (existing) throw new Error("Este nome de usuário já está em uso.");
+  }
+
+  const upsertData: Record<string, unknown> = {
+    user_id: userId,
+    salario: input.salario,
+    saldo_restante: input.saldoRestante,
+  };
+  if (input.username !== undefined) {
+    upsertData.username = input.username?.trim() || null;
+  }
+
   const { data, error } = await sb
     .from("perfil")
-    .upsert(
-      { user_id: userId, salario: input.salario, saldo_restante: input.saldoRestante },
-      { onConflict: "user_id" },
-    )
-    .select("id,user_id,salario,saldo_restante")
+    .upsert(upsertData, { onConflict: "user_id" })
+    .select("id,user_id,salario,saldo_restante,username")
     .single();
   if (error) throw new Error(error.message);
   return toProfile(data as ProfileRow);
+}
+
+export async function findUserByUsername(username: string): Promise<string | null> {
+  const sb = createSupabaseServiceClient();
+  const { data, error } = await sb.rpc("find_user_by_username", { p_username: username });
+  if (!error && data) return String(data);
+
+  // Fallback: direct query
+  console.warn("[findUserByUsername] RPC failed, using direct query:", error?.message);
+  const { data: row } = await sb
+    .from("perfil")
+    .select("user_id")
+    .ilike("username", username)
+    .maybeSingle();
+  return row?.user_id ?? null;
+}
+
+export async function getEmailByUserId(userId: string): Promise<string | null> {
+  const sb = createSupabaseServiceClient();
+  const { data } = await sb.auth.admin.getUserById(userId);
+  return data?.user?.email ?? null;
 }
 
 // ─── Cobranças ────────────────────────────────────────────────────────────────
@@ -228,6 +420,8 @@ type CobrancaRow = {
   data_vencimento: string;
   categoria: string;
   created_at: string;
+  compra_origem_id: string | null;
+  valor_parcela_dividida: number | null;
 };
 
 function toCobranca(row: CobrancaRow): Cobranca {
@@ -242,11 +436,13 @@ function toCobranca(row: CobrancaRow): Cobranca {
     dataVencimento: row.data_vencimento,
     categoria: row.categoria ?? "Cobrança",
     createdAt: row.created_at,
+    compraOrigemId: row.compra_origem_id ?? null,
+    valorParcelaDividida: row.valor_parcela_dividida ?? null,
   };
 }
 
 const COBRANCA_COLS =
-  "id,user_id,nome_pessoa,valor_devido,nome_compra,eh_parcelado,quantidade_parcelas,valor_total,data_vencimento,categoria,created_at";
+  "id,user_id,nome_pessoa,valor_devido,nome_compra,eh_parcelado,quantidade_parcelas,valor_total,data_vencimento,categoria,created_at,compra_origem_id,valor_parcela_dividida";
 
 export async function listCobrancas(_: string, userId: string): Promise<Cobranca[]> {
   const sb = createSupabaseServiceClient();
@@ -274,6 +470,8 @@ export async function appendCobranca(_: string, userId: string, input: CobrancaI
       valor_total: input.valorTotal,
       data_vencimento: input.dataVencimento,
       categoria: input.categoria ?? "Cobrança",
+      compra_origem_id: input.compraOrigemId ?? null,
+      valor_parcela_dividida: input.valorParcelaDividida ?? null,
     })
     .select(COBRANCA_COLS)
     .single();
@@ -364,6 +562,7 @@ type PrevisaoRow = {
   total_parcelas: number | null;
   valor_parcela: number;
   categoria: string;
+  recorrente?: boolean;
   created_at: string;
 };
 
@@ -377,22 +576,24 @@ function toPrevisao(row: PrevisaoRow): Previsao {
     totalParcelas: row.total_parcelas,
     valorParcela: row.valor_parcela,
     categoria: row.categoria ?? "Previsão",
+    recorrente: row.recorrente ?? false,
     createdAt: row.created_at,
   };
 }
 
 const PREVISAO_COLS =
   "id,user_id,descricao,valor,data_prevista,parcelada,total_parcelas,valor_parcela,categoria,created_at";
+const PREVISAO_COLS_FULL =
+  "id,user_id,descricao,valor,data_prevista,parcelada,total_parcelas,valor_parcela,categoria,recorrente,created_at";
 
 export async function listPrevisoes(_: string, userId: string): Promise<Previsao[]> {
   const sb = createSupabaseServiceClient();
-  const { data, error } = await sb
-    .from("previsoes")
-    .select(PREVISAO_COLS)
-    .eq("user_id", userId)
-    .order("data_prevista", { ascending: true });
-  if (error) throw new Error(error.message);
-  return (data ?? []).map((r) => toPrevisao(r as PrevisaoRow));
+  // Try full cols (with recorrente), fallback to base if column not yet migrated
+  const { data, error } = await sb.from("previsoes").select(PREVISAO_COLS_FULL).eq("user_id", userId).order("data_prevista", { ascending: true });
+  if (!error) return (data ?? []).map((r) => toPrevisao(r as unknown as PrevisaoRow));
+  const { data: d2, error: e2 } = await sb.from("previsoes").select(PREVISAO_COLS).eq("user_id", userId).order("data_prevista", { ascending: true });
+  if (e2) throw new Error(e2.message);
+  return (d2 ?? []).map((r) => toPrevisao(r as unknown as PrevisaoRow));
 }
 
 export async function appendPrevisao(_: string, userId: string, input: PrevisaoInput): Promise<Previsao> {
@@ -401,23 +602,26 @@ export async function appendPrevisao(_: string, userId: string, input: PrevisaoI
   const valor = input.parcelada && input.totalParcelas && input.valorParcela
     ? n(input.totalParcelas) * n(input.valorParcela)
     : n(input.valor);
-  const { data, error } = await sb
-    .from("previsoes")
-    .insert({
-      id: newId(),
-      user_id: userId,
-      descricao: input.descricao,
-      valor,
-      data_prevista: input.dataPrevista,
-      parcelada: input.parcelada,
-      total_parcelas: input.totalParcelas,
-      valor_parcela: input.valorParcela,
-      categoria: input.categoria ?? "Previsão",
-    })
-    .select(PREVISAO_COLS)
-    .single();
-  if (error) throw new Error(error.message);
-  return toPrevisao(data as PrevisaoRow);
+
+  const insertData: Record<string, unknown> = {
+    id: newId(),
+    user_id: userId,
+    descricao: input.descricao,
+    valor,
+    data_prevista: input.dataPrevista,
+    parcelada: input.parcelada,
+    total_parcelas: input.totalParcelas,
+    valor_parcela: input.valorParcela,
+    categoria: input.categoria ?? "Previsão",
+    recorrente: input.recorrente ?? false,
+  };
+
+  const { data: d1, error: e1 } = await sb.from("previsoes").insert(insertData).select(PREVISAO_COLS_FULL).single();
+  if (!e1) return toPrevisao(d1 as unknown as PrevisaoRow);
+  const { recorrente: _r, ...baseData } = insertData;
+  const { data: d2, error: e2 } = await sb.from("previsoes").insert(baseData).select(PREVISAO_COLS).single();
+  if (e2) throw new Error(e2.message);
+  return toPrevisao(d2 as unknown as PrevisaoRow);
 }
 
 export async function updatePrevisao(_: string, userId: string, id: string, input: PrevisaoInput): Promise<Previsao> {
@@ -426,23 +630,24 @@ export async function updatePrevisao(_: string, userId: string, id: string, inpu
   const valor = input.parcelada && input.totalParcelas && input.valorParcela
     ? n(input.totalParcelas) * n(input.valorParcela)
     : n(input.valor);
-  const { data, error } = await sb
-    .from("previsoes")
-    .update({
-      descricao: input.descricao,
-      valor,
-      data_prevista: input.dataPrevista,
-      parcelada: input.parcelada,
-      total_parcelas: input.totalParcelas,
-      valor_parcela: input.valorParcela,
-      categoria: input.categoria ?? "Previsão",
-    })
-    .eq("id", id)
-    .eq("user_id", userId)
-    .select(PREVISAO_COLS)
-    .single();
-  if (error) throw new Error(error.message);
-  return toPrevisao(data as PrevisaoRow);
+
+  const updateData: Record<string, unknown> = {
+    descricao: input.descricao,
+    valor,
+    data_prevista: input.dataPrevista,
+    parcelada: input.parcelada,
+    total_parcelas: input.totalParcelas,
+    valor_parcela: input.valorParcela,
+    categoria: input.categoria ?? "Previsão",
+    recorrente: input.recorrente ?? false,
+  };
+
+  const { data: d1, error: e1 } = await sb.from("previsoes").update(updateData).eq("id", id).eq("user_id", userId).select(PREVISAO_COLS_FULL).single();
+  if (!e1) return toPrevisao(d1 as unknown as PrevisaoRow);
+  const { recorrente: _r, ...baseData } = updateData;
+  const { data: d2, error: e2 } = await sb.from("previsoes").update(baseData).eq("id", id).eq("user_id", userId).select(PREVISAO_COLS).single();
+  if (e2) throw new Error(e2.message);
+  return toPrevisao(d2 as unknown as PrevisaoRow);
 }
 
 export async function deletePrevisao(_: string, userId: string, id: string): Promise<void> {
@@ -453,19 +658,106 @@ export async function deletePrevisao(_: string, userId: string, id: string): Pro
 
 // ─── Histórico agregado ───────────────────────────────────────────────────────
 
-export async function listAllComprasAndCobrancasAndBonuses(_: string, userId: string) {
+export type HistoricoItem = {
+  id: string;
+  tipo: "compra" | "cobranca" | "bonus";
+  titulo: string;
+  subtitulo: string;
+  valor: number;
+  data_ref: string;
+  info: string | null;
+  dividido_com?: string[] | null;
+};
+
+export async function getHistorico(_: string, userId: string): Promise<HistoricoItem[]> {
   const sb = createSupabaseServiceClient();
-  const [comprasRes, cobrancasRes, bonusesRes] = await Promise.all([
-    sb.from("compras").select(COMPRA_COLS).eq("user_id", userId).order("created_at", { ascending: false }),
-    sb.from("cobrancas").select(COBRANCA_COLS).eq("user_id", userId).order("created_at", { ascending: false }),
-    sb.from("bonuses").select("id,user_id,valor,descricao,created_at").eq("user_id", userId).order("created_at", { ascending: false }),
+
+  const { data: rpcData, error: rpcError } = await sb.rpc("get_historico", { p_user_id: userId });
+  if (!rpcError && Array.isArray(rpcData)) {
+    console.log("[historico] RPC ok — items:", rpcData.length);
+    return (rpcData as Array<Record<string, unknown>>).map((row) => {
+      let divididoCom: string[] | null = null;
+      if (row.dividido_com) {
+        try { divididoCom = JSON.parse(String(row.dividido_com)); } catch { divididoCom = null; }
+      }
+      return {
+        id: String(row.id),
+        tipo: String(row.tipo) as HistoricoItem["tipo"],
+        titulo: String(row.titulo ?? ""),
+        subtitulo: String(row.subtitulo ?? ""),
+        valor: Number(row.valor ?? 0),
+        data_ref: String(row.data_ref ?? ""),
+        info: row.info ? String(row.info) : null,
+        dividido_com: divididoCom,
+      };
+    });
+  }
+  console.warn("[historico] RPC failed:", rpcError?.message, "— using fallback");
+
+  const [cRes, cbRes, bRes] = await Promise.all([
+    sb.from("compras")
+      .select("id,nome,cartao_ou_pessoa,valor_total,parcelada,total_parcelas,parcelas_restantes,data_inicio,dividido_com")
+      .eq("user_id", userId)
+      .order("data_inicio", { ascending: false }),
+    sb.from("cobrancas")
+      .select("id,nome_pessoa,nome_compra,valor_devido,data_vencimento")
+      .eq("user_id", userId)
+      .order("data_vencimento", { ascending: false }),
+    sb.from("bonuses")
+      .select("id,valor,descricao,created_at")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false }),
   ]);
-  if (comprasRes.error) throw new Error(comprasRes.error.message);
-  if (cobrancasRes.error) throw new Error(cobrancasRes.error.message);
-  if (bonusesRes.error) throw new Error(bonusesRes.error.message);
-  return {
-    compras: (comprasRes.data ?? []).map((r) => toCompra(r as CompraRow)),
-    cobrancas: (cobrancasRes.data ?? []).map((r) => toCobranca(r as CobrancaRow)),
-    bonuses: (bonusesRes.data ?? []) as { id: string; valor: number; descricao: string; created_at: string }[],
-  };
+
+  const items: HistoricoItem[] = [];
+
+  for (const r of (cRes.data ?? [])) {
+    const row = r as Record<string, unknown>;
+    const parcelada = Boolean(row.parcelada);
+    let divididoCom: string[] | null = null;
+    if (row.dividido_com) {
+      try { divididoCom = JSON.parse(String(row.dividido_com)); } catch { divididoCom = null; }
+    }
+    items.push({
+      id: String(row.id),
+      tipo: "compra",
+      titulo: String(row.nome ?? ""),
+      subtitulo: String(row.cartao_ou_pessoa ?? ""),
+      valor: Number(row.valor_total ?? 0),
+      data_ref: String(row.data_inicio ?? ""),
+      info: parcelada
+        ? `${row.parcelas_restantes ?? row.total_parcelas ?? 0} parcelas restantes`
+        : "À vista",
+      dividido_com: divididoCom,
+    });
+  }
+
+  for (const r of (cbRes.data ?? [])) {
+    const row = r as Record<string, unknown>;
+    items.push({
+      id: String(row.id),
+      tipo: "cobranca",
+      titulo: String(row.nome_pessoa ?? ""),
+      subtitulo: String(row.nome_compra ?? ""),
+      valor: Number(row.valor_devido ?? 0),
+      data_ref: String(row.data_vencimento ?? ""),
+      info: "A receber",
+    });
+  }
+
+  for (const r of (bRes.data ?? [])) {
+    const row = r as Record<string, unknown>;
+    items.push({
+      id: String(row.id),
+      tipo: "bonus",
+      titulo: `Bônus: ${row.descricao ?? ""}`,
+      subtitulo: "Renda extra",
+      valor: Number(row.valor ?? 0),
+      data_ref: String(row.created_at ?? ""),
+      info: null,
+    });
+  }
+
+  items.sort((a, b) => b.data_ref.localeCompare(a.data_ref));
+  return items;
 }

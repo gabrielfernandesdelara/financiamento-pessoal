@@ -55,3 +55,14 @@ export function usePagarCompra() {
     },
   });
 }
+
+export function usePagarTudo() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (filtro?: string) => comprasClient.pagarTudo(filtro),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: KEY });
+      qc.invalidateQueries({ queryKey: HIST });
+    },
+  });
+}

@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -22,7 +22,7 @@ export default function LoginPage() {
     setIsLoading(true);
 
     const result = await signIn("credentials", {
-      email,
+      email: identifier,   // field is named "email" internally for NextAuth
       password,
       redirect: false,
     });
@@ -30,7 +30,7 @@ export default function LoginPage() {
     setIsLoading(false);
 
     if (result?.error) {
-      setError("Email ou senha invalidos.");
+      setError("Usuário ou senha inválidos.");
       return;
     }
 
@@ -48,18 +48,19 @@ export default function LoginPage() {
           Bem-vindo ao Finanças
         </h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Acesse com seu email e senha para sincronizar seus dados no Supabase.
+          Entre com seu nome de usuário e senha.
         </p>
 
         <form className="mt-6 space-y-4 text-left" onSubmit={onSubmit}>
           <div className="space-y-2">
-            <Label htmlFor="email">Email</Label>
+            <Label htmlFor="identifier">Nome de usuário</Label>
             <Input
-              id="email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="voce@exemplo.com"
+              id="identifier"
+              type="text"
+              value={identifier}
+              onChange={(e) => setIdentifier(e.target.value)}
+              placeholder="seu_usuario"
+              autoComplete="username"
               required
             />
           </div>
@@ -72,18 +73,21 @@ export default function LoginPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Sua senha"
+              autoComplete="current-password"
               required
             />
           </div>
 
-          {error ? (
-            <p className="text-sm text-destructive">{error}</p>
-          ) : null}
+          {error && <p className="text-sm text-destructive">{error}</p>}
 
           <Button className="w-full" size="lg" type="submit" disabled={isLoading}>
-            {isLoading ? "Entrando..." : "Entrar"}
+            {isLoading ? "Entrando…" : "Entrar"}
           </Button>
         </form>
+
+        <p className="mt-4 text-xs text-muted-foreground">
+          Ainda não tem usuário? Acesse com seu e-mail para configurar um nome de usuário na aba Perfil.
+        </p>
       </Card>
     </div>
   );

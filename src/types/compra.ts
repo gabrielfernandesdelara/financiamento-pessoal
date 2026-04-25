@@ -15,6 +15,20 @@ export const CATEGORIAS_SUGERIDAS = [
   "Outros",
 ] as const;
 
+export const ParticipanteSchema = z.discriminatedUnion("tipo", [
+  z.object({
+    tipo: z.literal("cadastrado"),
+    username: z.string().min(1, "Informe o nome de usuário"),
+    nome: z.string().optional(),
+  }),
+  z.object({
+    tipo: z.literal("sem_cadastro"),
+    nome: z.string().min(1, "Informe o nome"),
+    contato: z.string().optional(),
+  }),
+]);
+export type Participante = z.infer<typeof ParticipanteSchema>;
+
 export const CompraSchema = z.object({
   id: z.string(),
   nome: z.string().min(1, "Informe o nome da compra"),
@@ -28,9 +42,18 @@ export const CompraSchema = z.object({
   categoria: z.string().default("Outros"),
   quitada: z.boolean().default(false),
   createdAt: z.string().optional(),
+  dividida: z.boolean().default(false),
+  adicionadoPor: z.string().nullable().optional(),
+  semDataTermino: z.boolean().default(false),
+  divididoCom: z.array(z.string()).nullable().optional(),
 });
 
 export type Compra = z.infer<typeof CompraSchema>;
 
-export const CompraInputSchema = CompraSchema.omit({ id: true, quitada: true, createdAt: true });
+export const CompraInputSchema = CompraSchema
+  .omit({ id: true, quitada: true, createdAt: true, adicionadoPor: true, dividida: true, divididoCom: true })
+  .extend({
+    participantes: z.array(ParticipanteSchema).optional(),
+  });
+
 export type CompraInput = z.infer<typeof CompraInputSchema>;

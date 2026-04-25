@@ -11,6 +11,8 @@ export const CobrancaSchema = z.object({
   dataVencimento: z.string().min(1, "Informe a data de vencimento"),
   categoria: z.string().default("Cobrança"),
   createdAt: z.string().optional(),
+  compraOrigemId: z.string().nullable().optional(),
+  valorParcelaDividida: z.coerce.number().nullable().optional(),
 });
 
 export type Cobranca = z.infer<typeof CobrancaSchema>;

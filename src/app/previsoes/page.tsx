@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useSession } from "next-auth/react";
-import { CalendarClock, Pencil, Trash2, Info } from "lucide-react";
+import { CalendarClock, Pencil, Trash2, Info, Repeat2 } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Fab } from "@/components/shared/fab";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -13,6 +13,8 @@ import { SignInRequired } from "@/components/shared/sign-in-required";
 import { PrevisaoForm } from "@/components/previsoes/previsao-form";
 import { usePrevisoes, useCreatePrevisao, useUpdatePrevisao, useDeletePrevisao } from "@/hooks/use-previsoes";
 import { useProfile } from "@/hooks/use-profile";
+import { useCompras } from "@/hooks/use-compras";
+import { useBonuses } from "@/hooks/use-bonuses";
 import { toast } from "@/hooks/use-toast";
 import { formatCurrency, formatDate, cn } from "@/lib/utils";
 import { projecaoComPrevisoes } from "@/lib/compras-analytics";
@@ -30,13 +32,18 @@ export default function PrevisoesPage() {
   const [open, setOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<Previsao | null>(null);
 
-  const previsoes = data ?? [];
-  const saldoAtual = profile?.saldoRestante ?? 0;
-  const salario = profile?.salario ?? 0;
+  const previsoes   = data ?? [];
+  const saldoAtual  = profile?.saldoRestante ?? 0;
+  const salario     = profile?.salario ?? 0;
+
+  const { data: comprasData } = useCompras();
+  const { data: bonusesData } = useBonuses();
+  const compras = comprasData ?? [];
+  const bonuses = bonusesData ?? [];
 
   const projecao = React.useMemo(
-    () => projecaoComPrevisoes(previsoes, saldoAtual, salario, 6),
-    [previsoes, saldoAtual, salario],
+    () => projecaoComPrevisoes(previsoes, compras, bonuses, saldoAtual, salario, 6),
+    [previsoes, compras, bonuses, saldoAtual, salario],
   );
 
   function openCreate() { setEditing(null); setOpen(true); }
@@ -107,7 +114,7 @@ export default function PrevisoesPage() {
             <CardContent className="p-4">
               <p className="mb-1 text-sm font-semibold">Simulação: próximos 6 meses</p>
               <p className="mb-3 text-xs text-muted-foreground">
-                Base: saldo restante ({formatCurrency(saldoAtual)}) + salário ({formatCurrency(salario)}/mês) − previsões do mês
+                Receita acumulada: saldo restante ({formatCurrency(saldoAtual)}) + salário ({formatCurrency(salario)}) por mês, acumulando mês a mês − previsões e compras do mês
               </p>
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
@@ -163,10 +170,17 @@ export default function PrevisoesPage() {
                   <Card key={p.id}>
                     <CardContent className="flex items-start justify-between gap-4 p-4">
                       <div className="min-w-0 flex-1 space-y-0.5">
-                        <p className="truncate font-medium">{p.descricao}</p>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <p className="truncate font-medium">{p.descricao}</p>
+                          {p.recorrente && (
+                            <span className="flex items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 text-xs font-semibold text-success">
+                              <Repeat2 className="h-3 w-3" />
+                              Recorrente
+                            </span>
+                          )}
+                        </div>
                         <p className="text-xs text-muted-foreground">
-                          {formatDate(p.dataPrevista)}
-                          {p.categoria !== "Previsão" ? ` · ${p.categoria}` : ""}
+                          {p.recorrente ? `A partir de ${formatDate(p.dataPrevista)}` : formatDate(p.dataPrevista)}
                           {p.parcelada && p.totalParcelas
                             ? ` · ${p.totalParcelas}x ${formatCurrency(p.valorParcela)}`
                             : ""}

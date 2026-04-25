@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 export type AuthedContext = {
   userId: string;
   accessToken: string;
+  userName: string;
 };
 
 export async function requireAuthedUser(): Promise<
@@ -14,15 +15,16 @@ export async function requireAuthedUser(): Promise<
   if (!session?.user?.id || !session.accessToken) {
     return {
       ok: false,
-      response: NextResponse.json(
-        { error: "unauthorized" },
-        { status: 401 },
-      ),
+      response: NextResponse.json({ error: "unauthorized" }, { status: 401 }),
     };
   }
   return {
     ok: true,
-    ctx: { userId: session.user.id, accessToken: session.accessToken },
+    ctx: {
+      userId: session.user.id,
+      accessToken: session.accessToken,
+      userName: session.user.name ?? session.user.email ?? "Usuário",
+    },
   };
 }
 

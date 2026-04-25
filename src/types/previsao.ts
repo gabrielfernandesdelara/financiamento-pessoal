@@ -9,6 +9,7 @@ export const PrevisaoSchema = z.object({
   totalParcelas: z.coerce.number().int().positive().nullable(),
   valorParcela: z.coerce.number().nonnegative(),
   categoria: z.string().default("Previsão"),
+  recorrente: z.boolean().default(false),
   createdAt: z.string().optional(),
 });
 

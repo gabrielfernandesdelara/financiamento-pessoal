@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useForm, Controller, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { Users } from "lucide-react";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
@@ -10,8 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { PrevisaoInputSchema, type PrevisaoInput, type Previsao } from "@/types/previsao";
-import { CATEGORIAS_SUGERIDAS } from "@/types/compra";
-import { todayISO } from "@/lib/utils";
+import { todayISO, formatCurrency } from "@/lib/utils";
 
 type Props = {
   open: boolean;
@@ -29,9 +29,8 @@ const DEFAULTS: PrevisaoInput = {
   totalParcelas: null,
   valorParcela: 0,
   categoria: "Previsão",
+  recorrente: false,
 };
-
-const CATS = ["Previsão", ...CATEGORIAS_SUGERIDAS.filter(c => c !== "Outros"), "Outros"];
 
 export function PrevisaoForm({ open, onOpenChange, initial, onSubmit, isSubmitting }: Props) {
   const form = useForm<PrevisaoInput>({
@@ -39,9 +38,14 @@ export function PrevisaoForm({ open, onOpenChange, initial, onSubmit, isSubmitti
     defaultValues: DEFAULTS,
   });
 
-  const parcelada = useWatch({ control: form.control, name: "parcelada" });
+  const parcelada     = useWatch({ control: form.control, name: "parcelada" });
+  const recorrente    = useWatch({ control: form.control, name: "recorrente" });
   const totalParcelas = useWatch({ control: form.control, name: "totalParcelas" });
-  const valorParcela = useWatch({ control: form.control, name: "valorParcela" });
+  const valorParcela  = useWatch({ control: form.control, name: "valorParcela" });
+  const valorTotal    = useWatch({ control: form.control, name: "valor" });
+
+  const [dividir, setDividir] = useState(false);
+  const [numeroPessoas, setNumeroPessoas] = useState(2);
 
   useEffect(() => {
     if (open) {
@@ -53,10 +57,22 @@ export function PrevisaoForm({ open, onOpenChange, initial, onSubmit, isSubmitti
         totalParcelas: initial.totalParcelas,
         valorParcela: initial.valorParcela,
         categoria: initial.categoria,
+        recorrente: initial.recorrente ?? false,
       } : DEFAULTS);
+      setDividir(false);
+      setNumeroPessoas(2);
     }
   }, [open, initial, form]);
 
+  // Disable parcelada when recorrente is on
+  useEffect(() => {
+    if (recorrente) {
+      form.setValue("parcelada", false);
+      form.setValue("totalParcelas", null);
+    }
+  }, [recorrente, form]);
+
+  // Auto-calc total when parcelada
   useEffect(() => {
     if (parcelada && totalParcelas && valorParcela) {
       const total = Number(totalParcelas) * Number(valorParcela);
@@ -64,13 +80,28 @@ export function PrevisaoForm({ open, onOpenChange, initial, onSubmit, isSubmitti
     }
   }, [parcelada, totalParcelas, valorParcela, form]);
 
+  const valorBruto = Number(valorTotal) || 0;
+  const valorPorPessoa = dividir && numeroPessoas > 1 ? valorBruto / numeroPessoas : null;
+
   const submit = form.handleSubmit(async (values) => {
     const n = (v: unknown) => Number(v) || 0;
+    let valorFinal = values.parcelada
+      ? n(values.totalParcelas) * n(values.valorParcela) || n(values.valor)
+      : n(values.valor);
+
+    // Divide cost by number of people (store only the user's share)
+    if (dividir && numeroPessoas > 1) {
+      valorFinal = valorFinal / numeroPessoas;
+    }
+
     const payload: PrevisaoInput = {
       ...values,
-      valor: values.parcelada ? n(values.totalParcelas) * n(values.valorParcela) || n(values.valor) : n(values.valor),
+      valor: valorFinal,
+      valorParcela: values.parcelada
+        ? (dividir && numeroPessoas > 1 ? n(values.valorParcela) / numeroPessoas : n(values.valorParcela))
+        : 0,
       totalParcelas: values.parcelada ? values.totalParcelas : null,
-      valorParcela: values.parcelada ? n(values.valorParcela) : 0,
+      recorrente: values.recorrente ?? false,
     };
     await onSubmit(payload);
   });
@@ -86,60 +117,61 @@ export function PrevisaoForm({ open, onOpenChange, initial, onSubmit, isSubmitti
         </DialogHeader>
 
         <form onSubmit={submit} className="grid gap-4">
+          {/* Descrição */}
           <div className="grid gap-2">
             <Label htmlFor="descricao">Descrição</Label>
-            <Input id="descricao" placeholder="Aluguel, conta de luz, salário…" {...form.register("descricao")} />
+            <Input id="descricao" placeholder="Aluguel, conta de luz, viagem…" {...form.register("descricao")} />
             {form.formState.errors.descricao && (
               <p className="text-xs text-destructive">{form.formState.errors.descricao.message}</p>
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="grid gap-2">
-              <Label htmlFor="dataPrevista">Data prevista</Label>
-              <Input id="dataPrevista" type="date" {...form.register("dataPrevista")} />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="prev-categoria">Categoria</Label>
-              <Input
-                id="prev-categoria"
-                list="cats-prev"
-                placeholder="Previsão, Aluguel…"
-                {...form.register("categoria")}
-              />
-              <datalist id="cats-prev">
-                {CATS.map(c => <option key={c} value={c} />)}
-              </datalist>
-            </div>
+          {/* Data */}
+          <div className="grid gap-2">
+            <Label htmlFor="dataPrevista">Data prevista</Label>
+            <Input id="dataPrevista" type="date" {...form.register("dataPrevista")} />
           </div>
 
-          <label className="flex items-center gap-3 rounded-xl border border-border/60 p-3 text-sm">
-            <Controller
-              control={form.control}
-              name="parcelada"
-              render={({ field }) => (
-                <input type="checkbox" className="h-4 w-4 rounded accent-primary" checked={field.value} onChange={field.onChange} />
-              )}
-            />
-            <span>É parcelada?</span>
+          {/* Recorrente */}
+          <label className="flex items-center gap-3 rounded-xl border border-border/60 p-3 text-sm cursor-pointer">
+            <Controller control={form.control} name="recorrente" render={({ field }) => (
+              <input type="checkbox" className="h-4 w-4 rounded accent-primary" checked={!!field.value} onChange={field.onChange} />
+            )} />
+            <div>
+              <span className="font-medium">É recorrente?</span>
+              <p className="text-xs text-muted-foreground">Repete todo mês a partir da data prevista</p>
+            </div>
           </label>
 
-          {parcelada ? (
+          {/* Parcelada — oculto se recorrente */}
+          {!recorrente && (
+            <label className="flex items-center gap-3 rounded-xl border border-border/60 p-3 text-sm cursor-pointer">
+              <Controller control={form.control} name="parcelada" render={({ field }) => (
+                <input type="checkbox" className="h-4 w-4 rounded accent-primary" checked={field.value} onChange={field.onChange} />
+              )} />
+              <span>É parcelada?</span>
+            </label>
+          )}
+
+          {parcelada && !recorrente && (
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <Label htmlFor="prevTotalParcelas">Número de parcelas</Label>
-                <Input id="prevTotalParcelas" type="number" min={1} placeholder="12" {...form.register("totalParcelas", { valueAsNumber: true })} />
+                <Input id="prevTotalParcelas" type="number" min={1} placeholder="12"
+                  {...form.register("totalParcelas", { valueAsNumber: true })} />
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="prevValorParcela">Valor por parcela (R$)</Label>
-                <Input id="prevValorParcela" type="number" step="0.01" inputMode="decimal" placeholder="0,00" {...form.register("valorParcela", { valueAsNumber: true })} />
+                <Input id="prevValorParcela" type="number" step="0.01" inputMode="decimal" placeholder="0,00"
+                  {...form.register("valorParcela", { valueAsNumber: true })} />
               </div>
             </div>
-          ) : null}
+          )}
 
+          {/* Valor */}
           <div className="grid gap-2">
             <Label htmlFor="prevValor">
-              {parcelada ? "Valor total (calculado automaticamente)" : "Valor (R$)"}
+              {parcelada && !recorrente ? "Valor total (calculado)" : "Valor (R$)"}
             </Label>
             <Input
               id="prevValor"
@@ -147,8 +179,8 @@ export function PrevisaoForm({ open, onOpenChange, initial, onSubmit, isSubmitti
               step="0.01"
               inputMode="decimal"
               placeholder="0,00"
-              readOnly={parcelada}
-              className={parcelada ? "bg-muted text-muted-foreground" : ""}
+              readOnly={parcelada && !recorrente}
+              className={parcelada && !recorrente ? "bg-muted text-muted-foreground" : ""}
               {...form.register("valor", { valueAsNumber: true })}
             />
             {form.formState.errors.valor && (
@@ -156,8 +188,51 @@ export function PrevisaoForm({ open, onOpenChange, initial, onSubmit, isSubmitti
             )}
           </div>
 
+          {/* Dividir custo */}
+          <label className="flex items-center gap-3 rounded-xl border border-border/60 p-3 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded accent-primary"
+              checked={dividir}
+              onChange={(e) => {
+                setDividir(e.target.checked);
+                if (!e.target.checked) setNumeroPessoas(2);
+              }}
+            />
+            <div>
+              <span className="font-medium">Dividir o custo com outras pessoas?</span>
+              <p className="text-xs text-muted-foreground">Divide o valor igualmente — salva apenas a sua parte</p>
+            </div>
+          </label>
+
+          {dividir && (
+            <div className="grid gap-2 rounded-xl border border-border/60 bg-muted/30 p-3">
+              <div className="flex items-center gap-3">
+                <Users className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <Label htmlFor="numeroPessoas" className="flex-1">Total de pessoas (incluindo você)</Label>
+                <Input
+                  id="numeroPessoas"
+                  type="number"
+                  min={2}
+                  max={20}
+                  className="w-20 text-center"
+                  value={numeroPessoas}
+                  onChange={(e) => setNumeroPessoas(Math.max(2, Number(e.target.value) || 2))}
+                />
+              </div>
+              {valorPorPessoa !== null && valorBruto > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Sua parte: <strong className="text-foreground">{formatCurrency(valorPorPessoa)}</strong>
+                  {" "}({numeroPessoas} pessoas · {formatCurrency(valorBruto)} total)
+                </p>
+              )}
+            </div>
+          )}
+
           <DialogFooter>
-            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} disabled={isSubmitting}>Cancelar</Button>
+            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
+              Cancelar
+            </Button>
             <Button type="submit" disabled={isSubmitting}>
               {isSubmitting ? "Salvando…" : initial ? "Salvar alterações" : "Adicionar previsão"}
             </Button>

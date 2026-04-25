@@ -4,6 +4,7 @@ export const ProfileSchema = z.object({
   id: z.string(),
   salario: z.coerce.number().nonnegative("Salário não pode ser negativo"),
   saldoRestante: z.coerce.number().default(0),
+  username: z.string().nullable().optional(),
 });
 
 export type Profile = z.infer<typeof ProfileSchema>;

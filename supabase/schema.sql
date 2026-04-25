@@ -142,5 +142,89 @@ $$;
 -- =============================================================================
 -- MIGRATIONS: execute se as tabelas já existem no banco
 -- =============================================================================
-alter table bonuses add column if not exists recorrente boolean not null default false;
-alter table compras  drop column if exists data_quitada;
+alter table bonuses    add column if not exists recorrente             boolean not null default false;
+alter table compras    add column if not exists dividida               boolean not null default false;
+alter table compras    add column if not exists adicionado_por         text    null;
+alter table compras    add column if not exists sem_data_termino       boolean not null default false;
+alter table compras    add column if not exists dividido_com           text    null;
+alter table compras    drop column if exists data_quitada;
+alter table cobrancas  add column if not exists compra_origem_id       text    null;
+alter table cobrancas  add column if not exists valor_parcela_dividida numeric null;
+alter table perfil     add column if not exists username               text    null;
+alter table previsoes  add column if not exists recorrente             boolean not null default false;
+
+-- Username deve ser único (ignora nulos)
+create unique index if not exists idx_perfil_username on perfil(lower(username))
+  where username is not null;
+
+create index if not exists idx_perfil_username_lookup on perfil(username)
+  where username is not null;
+
+-- =============================================================================
+-- FUNÇÕES RPC — execute para habilitar Histórico e busca de usuário
+-- =============================================================================
+
+-- Histórico unificado com suporte a dividido_com
+drop function if exists get_historico(uuid);
+create or replace function get_historico(p_user_id uuid)
+returns table(
+  id           text,
+  tipo         text,
+  titulo       text,
+  subtitulo    text,
+  valor        numeric,
+  data_ref     text,
+  info         text,
+  dividido_com text
+)
+language sql
+security definer
+set search_path = public, pg_temp
+as $$
+  select h.id, h.tipo, h.titulo, h.subtitulo, h.valor, h.data_ref, h.info, h.dividido_com
+  from (
+    select c.id::text, 'compra'::text, c.nome, c.cartao_ou_pessoa,
+      c.valor_total, c.data_inicio::text,
+      case when c.parcelada
+        then coalesce(c.parcelas_restantes, c.total_parcelas)::text || ' parcelas restantes'
+        else 'À vista'
+      end,
+      c.dividido_com
+    from compras c where c.user_id = p_user_id
+
+    union all
+
+    select cb.id::text, 'cobranca'::text, cb.nome_pessoa, cb.nome_compra,
+      cb.valor_devido, cb.data_vencimento::text, 'A receber', null::text
+    from cobrancas cb where cb.user_id = p_user_id
+
+    union all
+
+    select b.id::text, 'bonus'::text, 'Bônus: ' || b.descricao, 'Renda extra',
+      b.valor, b.created_at::text, null::text, null::text
+    from bonuses b where b.user_id = p_user_id
+  ) as h(id, tipo, titulo, subtitulo, valor, data_ref, info, dividido_com)
+  order by 6 desc;
+$$;
+
+-- Busca de usuário por email (interno — usado pelo authorize do login)
+create or replace function find_user_by_email(p_email text)
+returns uuid
+language sql
+security definer
+set search_path = auth, public, pg_temp
+as $$
+  select id from auth.users where email = p_email limit 1;
+$$;
+
+-- Busca de usuário por username (para compras divididas)
+create or replace function find_user_by_username(p_username text)
+returns uuid
+language sql
+security definer
+set search_path = public, pg_temp
+as $$
+  select user_id from public.perfil
+  where lower(username) = lower(p_username)
+  limit 1;
+$$;

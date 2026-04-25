@@ -1,6 +1,7 @@
 import type { Compra, CompraInput } from "@/types/compra";
 
 export type PagarResult = { quitada: boolean; compra?: Compra };
+export type PagarTudoResult = { processadas: number };
 
 async function handle<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -33,4 +34,11 @@ export const comprasClient = {
 
   pagar: (id: string) =>
     fetch(`/api/compras/${id}`, { method: "PATCH" }).then(handle<PagarResult>),
+
+  pagarTudo: (filtro?: string) =>
+    fetch("/api/compras/pagar-tudo", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ filtro }),
+    }).then(handle<PagarTudoResult>),
 };
